@@ -1,0 +1,16 @@
+{
+  "name": "noa-hello-world",
+  "version": "0.0.1",
+  "description": "Minimal test of experimental game engine",
+  "main": "index.js",
+  "scripts": {
+    "start": "beefy index.js:bundle.js 8080 --live --open",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "beefy": "^2.1.2",
+    "browserify": "^8.1.3"
+  }
+}
