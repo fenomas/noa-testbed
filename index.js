@@ -2,7 +2,8 @@
 var noa = require('noa')
 
 var opts = {
-  pointerLock: false
+  pointerLock: false,
+  inverseY: true
 }
 
 var game = noa( opts )
