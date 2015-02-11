@@ -1,16 +1,27 @@
 {
   "name": "noa-hello-world",
   "version": "0.0.1",
-  "description": "Minimal test of experimental game engine",
+  "description": "Test world for experimental game engine",
   "main": "index.js",
   "scripts": {
     "start": "beefy index.js:bundle.js 8080 --live --open",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "author": "",
+  "author": "Andy Hall",
+  "keywords": [ "noa", "voxel", "game", "engine" ],
   "license": "MIT",
+  "dependencies": {
+    "noa": "andyhall/noa#0ae81df15c1dd0dee29e859b7f748e83396b095e"
+  },  
   "devDependencies": {
     "beefy": "^2.1.2",
     "browserify": "^8.1.3"
+  },
+  "repository" : {
+    "type" : "git",
+    "url" : "https://github.com/andyhall/noa-hello-world"
+  },
+  "bugs" : {
+    "url" : "https://github.com/andyhall/noa-hello-world/issues"
   }
 }
