@@ -11,7 +11,7 @@ var opts = {
   pointerLock: true,
   inverseY: true,
   chunkSize: 32,
-  texturePath: '/painterly/',
+  texturePath: 'painterly/',
   generator: worldGenerator
 }
 
