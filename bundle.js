@@ -1,65 +1,25 @@
 (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
 
 var noa = require('noa')
+//var texturePath = require('painterly-textures');
+
+// pass in a more interesting generator function
+var worldGenerator = require('./worldgen');
+
 
 var opts = {
   pointerLock: true,
   inverseY: true,
-  chunkSize: 32
+  chunkSize: 32,
+  texturePath: '/painterly/',
+  generator: worldGenerator
 }
 
 var game = noa( opts )
 
-//require('voxel-land')
-//require('voxel-plugins-ui')
-//require('voxel-keys')
-////require('voxel-chunkborder')
-//require('voxel-draw-box')
-//
-//window.util = require('util')
-//
-//
-//var engineOpts = {
-//	appendDocument: true,
-//	exposeGlobal: true,
-//	lightsDisabled: true,
-//	arrayTypeSize: 2,
-//	useAtlas: true,
-//	generateChunks: false,
-////	generate:'Valley',
-//	chunkDistance: 2,
-//	worldOrigin: [0, 0, 0],
-//	controls: {
-//		discreteFire: false,
-//		fireRate: 100,
-//		jumpTimer: 200
-//	}
-//	
-//}
-//
-//var game = engine({
-//	require: require,
-//	exposeGlobal: true,
-//	pluginOpts: {
-//		'voxel-engine': engineOpts,
-//		'voxel-registry': {},
-//		'voxel-stitch': { artpacks: ['ProgrammerArt-ResourcePack.zip'] },
-////		'game-shell-fps-camera': {},
-//		'voxel-shader': { cameraFOV: 90 },
-//		'voxel-mesher': {},
-//		'voxel-land': {populateTrees: true},
-//		'voxel-plugins-ui': { autoBlur: true, guiOpts: {width:400} },
-//		'voxel-keys': {},
-////		'voxel-chunkborder': {},
-//		'voxel-draw-box': {},
-//
-//	}
-//})
-//
-//
-//
 
-},{"noa":2}],2:[function(require,module,exports){
+
+},{"./worldgen":136,"noa":2}],2:[function(require,module,exports){
 
 var ndarray = require('ndarray')
 var aabb = require('aabb-3d')
@@ -109,7 +69,7 @@ function Engine(opts) {
   // ad-hoc stuff from here on:
   
 
-  var pbox = new aabb( [0,10,0], [2/3, 3/2, 2/3] )
+  var pbox = new aabb( [0,30,0], [2/3, 3/2, 2/3] )
   this.playerBody = this.physics.addBody( {}, pbox )
   
   var cameraOffset = [ 1/3, 3/2, 1/3 ]
@@ -159,7 +119,16 @@ function Engine(opts) {
     scene.activeCamera.position.x += 5
     console.log(scene.activeCamera.position.x)
   })
-
+  
+  // this should eventually come from a registry of some kind
+  this.materialData = [
+    null,
+    { texture: opts.texturePath+"dirt.png" },
+    { texture: opts.texturePath+"cobblestone.png" },
+    { texture: opts.texturePath+"grass.png" },
+    { color: [ 0.9, 0.9, 0.95 ] }
+  ]
+  
 }
 
 
@@ -204,17 +173,13 @@ Engine.prototype.render = function(dt) {
 
 // ad-hoc - TODO: this should be an event listener
 Engine.prototype.onChunkAdded = function(chunk, i, j, k) {
-  // colors - these should eventually come from registry
-  var cols = [0,
-              [ 0.4, 0.3, 0.0 ],
-              [ 0.3, 0.8, 0.3 ],
-              [ 0.4, 0.3, 0.7 ],
-             ]
-  var aovals = [ 0.7, 0.6, 0.5 ]
-  var meshData = this.mesher.meshChunk( chunk, cols, aovals )
-  if (meshData) { // could be false if chunk is empty
+  // TODO: pass in material/colors/chunk metadata somehow
+  var aovals = [ 1, 0.8, 0.6 ]
+  var matData = this.materialData
+  var meshDataArr = this.mesher.meshChunk( chunk, matData, aovals )
+  if (meshDataArr.length) { // empty if the chunk is empty
     var cs = this.world.chunkSize
-    this.rendering.addMeshFromData( meshData, i*cs, j*cs, k*cs )
+    this.rendering.addMeshDataArray( meshDataArr, i*cs, j*cs, k*cs )
   }
 }
 
@@ -28203,7 +28168,8 @@ module.exports = function(noa, opts) {
 */
 
 var defaults = {
-  babylonCamera: true  // needed for Babylon.js camera.  TODO: abstractify?
+  babylonCamera: true,  // needed for Babylon.js camera.  TODO: abstractify?
+  rotationScale: 0.0025
 }
 
 
@@ -28288,7 +28254,18 @@ function Mesher(noa, _opts) {
 Mesher.prototype.meshChunk = function(chunk, colors, aoValues, noAO) {
   if (!aoValues) aoValues = [ 0.8, 0.7, 0.5 ]
   return greedyND(chunk, colors, aoValues, !noAO)
-//      return greedy_original(chunk)
+  //      return greedy_original(chunk)
+}
+
+
+// helper class to hold submeshes.
+function Submesh(id) {
+  this.id = id
+  this.positions = []
+  this.indices = []
+  this.normals = []
+  this.colors = []
+  this.uvs = []
 }
 
 
@@ -28323,14 +28300,15 @@ var mask = new Int8Array(4096),
 var d, u, v, 
     arrT, len0, len1, len2,
     i, j, k, n, 
-    v0, v1, maskVal, l, m, w, h,
+    v0, v1, maskVal, dir, block, l, m, w, h,
     ao, jpos, jneg,
-    ao00, ao01, ao10, ao11, 
-    x, q, m1, m2, norm
+    ao00, ao01, ao10, ao11, du, dv, 
+    x, q, m1, m2, pos, norm,
+    defaultColor = [1,1,1,1] // base color for textured polys
 
 
-function greedyND(arr, vColors, aoValues, doAO) {
-  var pos = [], indices = [], norms = [], colors = [], uvs = []
+function greedyND(arr, materialData, aoValues, doAO) {
+  var meshes = [] // return object, holder for Submeshes
 
   //Sweep over each axis, mapping axes to [d,u,v]
   for(d=0; d<3; ++d) {
@@ -28362,7 +28340,7 @@ function greedyND(arr, vColors, aoValues, doAO) {
           v0 = ( i<1     ? false : arrT.get(i-1, j, k))
           v1 = ( i==len0 ? false : arrT.get(  i, j, k))
           mask[n] = v0 ? ( v1 ? 0 : v0 ) : ( v1 ? -v1 : 0 )
-          
+
           if (mask[n] && doAO) {
             // construct ao mask from data on the non-opaque side of the face
             l = (mask[n]>0) ? i : i-1
@@ -28407,10 +28385,12 @@ function greedyND(arr, vColors, aoValues, doAO) {
       for(k=0; k<len2; ++k)
         for(j=0; j<len1; ) {
           if (mask[n]) {
-            
+
             maskVal = mask[n]
+            dir = (maskVal > 0)
+            block = Math.abs(maskVal)
             ao = aomask[n]
-            
+
             //Compute width of area with same mask/aomask values
             if (doAO) {
               for(w=1; maskVal==mask[n+w] && ao==aomask[n+w] && j+w<len1; ++w) { }
@@ -28424,66 +28404,79 @@ function greedyND(arr, vColors, aoValues, doAO) {
               for(m=0; m<w; ++m) {
                 if (doAO) {
                   if(maskVal!=mask[n+m+h*len1] || (ao!=aomask[n+m+h*len1]) )
-                    break heightloop
+                    break heightloop;
                 } else {
                   if(maskVal!=mask[n+m+h*len1]) 
-                    break heightloop
+                    break heightloop;
                 }
               }
             }
 
-            // push color values based on AO values determined from aomask
-            var c = vColors[ Math.abs(maskVal) ]
+            // material and mesh for this face
+            var mesh = meshes[block]
+            if (!mesh) mesh = meshes[block] = new Submesh(block)
+            var mat = materialData[block]
+
+            var c = (mat.color) ? mat.color : defaultColor
+            // TODO: facing
+
+            // push AO-modified vertex colors (or just colors)
             if (doAO) {
               ao00 = determineAO( ao,  0,  0 )
               ao10 = determineAO( ao,  1,  0 )
               ao11 = determineAO( ao,  1,  1 )
               ao01 = determineAO( ao,  0,  1 )
-              pushAOColor( colors, c, ao00, aoValues )
-              pushAOColor( colors, c, ao10, aoValues )
-              pushAOColor( colors, c, ao11, aoValues )
-              pushAOColor( colors, c, ao01, aoValues )
+              pushAOColor( mesh.colors, c, ao00, aoValues )
+              pushAOColor( mesh.colors, c, ao10, aoValues )
+              pushAOColor( mesh.colors, c, ao11, aoValues )
+              pushAOColor( mesh.colors, c, ao01, aoValues )
             } else {
-              c = 0.6
-              colors.push(c, c, c, 1,
-                          c, c, c, 1,
-                          c, c, c, 1,
-                          c, c, c, 1 )
+              mesh.colors.push( c[0], c[1], c[2], c[3] )
+              mesh.colors.push( c[0], c[1], c[2], c[3] )
+              mesh.colors.push( c[0], c[1], c[2], c[3] )
+              mesh.colors.push( c[0], c[1], c[2], c[3] )
             }
-
 
             //Add quad, vertices = x -> x+du -> x+du+dv -> x+dv
             x = [0,0,0]
             x[d] = i
             x[u] = j
             x[v] = k
-            var du = [0,0,0]; du[u] = w;
-            var dv = [0,0,0]; dv[v] = h;
+            du = [0,0,0]; du[u] = w;
+            dv = [0,0,0]; dv[v] = h;
 
+            pos = mesh.positions
             pos.push(x[0],             x[1],             x[2],
                      x[0]+du[0],       x[1]+du[1],       x[2]+du[2],
                      x[0]+du[0]+dv[0], x[1]+du[1]+dv[1], x[2]+du[2]+dv[2],
                      x[0]      +dv[0], x[1]      +dv[1], x[2]      +dv[2]  )
 
             var vs = pos.length/3 - 4
+            
+            // add uv values if the material is textured
+            if (mat.texture) {
+              mesh.uvs.push( j,   k   )
+              mesh.uvs.push( j+w, k   )
+              mesh.uvs.push( j+w, k+h )
+              mesh.uvs.push( j,   k+h )
+            }
 
-
-            // order of indices so they are clockwise for the facing direction;
+            // Add indexes, ordered clockwise for the facing direction;
             // decide which way to split the quad based on ao colors
 
             var triDir = (doAO) ? (ao00==ao11) || ao01!=ao10 : true
 
             if (maskVal<0) {
               if (triDir) {
-                indices.push( vs, vs+1, vs+2, vs, vs+2, vs+3 )
+                mesh.indices.push( vs, vs+1, vs+2, vs, vs+2, vs+3 )
               } else {
-                indices.push( vs+1, vs+2, vs+3, vs, vs+1, vs+3 )
+                mesh.indices.push( vs+1, vs+2, vs+3, vs, vs+1, vs+3 )
               }
             } else {
               if (triDir) {
-                indices.push( vs, vs+2, vs+1, vs, vs+3, vs+2 )
+                mesh.indices.push( vs, vs+2, vs+1, vs, vs+3, vs+2 )
               } else {
-                indices.push( vs+3, vs+1, vs, vs+3, vs+2, vs+1 )
+                mesh.indices.push( vs+3, vs+1, vs, vs+3, vs+2, vs+1 )
               }
             }
 
@@ -28491,10 +28484,10 @@ function greedyND(arr, vColors, aoValues, doAO) {
             norm = [0,0,0]
             norm[d] = maskVal>0 ? 1 : -1
             // same norm for all vertices
-            norms.push(norm[0], norm[1], norm[2], 
-                       norm[0], norm[1], norm[2], 
-                       norm[0], norm[1], norm[2], 
-                       norm[0], norm[1], norm[2] )
+            mesh.normals.push(norm[0], norm[1], norm[2], 
+                              norm[0], norm[1], norm[2], 
+                              norm[0], norm[1], norm[2], 
+                              norm[0], norm[1], norm[2] )
 
 
             //Zero-out mask
@@ -28513,15 +28506,8 @@ function greedyND(arr, vColors, aoValues, doAO) {
         }
     }
   }
-  // return mesh data
-  if (pos.length === 0) return false
-  return {
-    positions:  pos,
-    indices:    indices,
-    normals:    norms,
-    colors:     colors,
-    uvs:        uvs
-  }
+  // done, return array of submeshes
+  return meshes
 }
 
 
@@ -28540,7 +28526,7 @@ function determineAO( aomask, jplus, kplus ) {
   if (side1 && side2) return 3
   if (side1 || side2) return 1
   corner = aomask & ( jplus ?
-                       (kplus ? 4 : 16) : (kplus ? 1 : 64) ) ? 1 : 0
+                     (kplus ? 4 : 16) : (kplus ? 1 : 64) ) ? 1 : 0
   return corner ? 1 : 0
 }
 
@@ -28585,7 +28571,7 @@ function greedy_original(arr) {
           //            (x[d] <  dims[d]-1 ? arr.get(x[0]+q[0], x[1]+q[1], x[2]+q[2]) : false);
           var m1 = 0    <= x[d]      ? arr.get(x[0],      x[1],      x[2])      : false
           var m2 = x[d] <  dims[d]-1 ? arr.get(x[0]+q[0], x[1]+q[1], x[2]+q[2]) : false
-//          mask[n++] = (m1 != m2) ? (m1 ? 1 : -1)  : false    // (truthy if we need a face between m1/m2
+          //          mask[n++] = (m1 != m2) ? (m1 ? 1 : -1)  : false    // (truthy if we need a face between m1/m2
           mask[n++] = m1 ? ( m2 ? false : 1 ) : ( m2 ? -1 : false  )  // (truthy if we need a face between m1/m2
         }
       //Increment x[d]
@@ -28709,7 +28695,7 @@ function makePhysics(noa, opts) {
 
 
 
-},{"extend":13,"voxel-physics-engine":62}],9:[function(require,module,exports){
+},{"extend":13,"voxel-physics-engine":96}],9:[function(require,module,exports){
 'use strict';
 
 var extend = require('extend')
@@ -28745,6 +28731,8 @@ function Rendering(noa, _opts, canvas) {
   initScene(this, canvas, opts)
   // for development
   window.scene = this._scene
+  // ad-hoc for now, will later be stored in registry?
+  this._materials = []
 }
 
 
@@ -28753,7 +28741,7 @@ function initScene(self, canvas, opts) {
   self._engine = new BABYLON.Engine(canvas, opts.antiAlias)
   self._scene =     new BABYLON.Scene( self._engine )
   self._camera =    new BABYLON.FreeCamera('c', new vec3(0,0,0), self._scene)
-//  self._camera =    new BABYLON.ArcRotateCamera("c", 1, 0.8, 20, new vec3(0, 0, 0), self._scene)
+  //  self._camera =    new BABYLON.ArcRotateCamera("c", 1, 0.8, 20, new vec3(0, 0, 0), self._scene)
   self._light =     new BABYLON.HemisphericLight('l', new vec3(0.1,1,0.3), self._scene )
   // apply some defaults
   function arrToColor(a) { return new col3( a[0], a[1], a[2] )  }
@@ -28777,7 +28765,7 @@ function initScene(self, canvas, opts) {
 Rendering.prototype.render = function() {
   var cpos = this.noa.getCameraPosition()
   this._camera.position.copyFromFloats( cpos[0], cpos[1], cpos[2] )
-  
+
   this._engine.beginFrame()
   this._scene.render()
   this._engine.endFrame()
@@ -28788,22 +28776,51 @@ Rendering.prototype.resize = function(e) {
 }
 
 
-Rendering.prototype.addMeshFromData = function(meshData, x, y, z) {
-  var m = new BABYLON.Mesh( 'm', this._scene )
-  var dat = new BABYLON.VertexData()
-  dat.positions = meshData.positions
-  dat.indices = meshData.indices
-  dat.normals = meshData.normals
-  dat.colors = meshData.colors
-//  if (dat.uvs)      dat.uvs = meshData.uvs
-  dat.applyToMesh( m )
-  if (x) m.position.x = x
-  if (y) m.position.y = y
-  if (z) m.position.z = z
+Rendering.prototype.addMeshDataArray = function(meshArr, x, y, z) {
+  for (var i in meshArr) { // array is sparse for now
+    // mdat is instance of Mesher#Submesh
+    var mdat = meshArr[i]
+    // get or create babylon material
+    var mat = getMaterial(this, mdat.id)
+
+    var m = new BABYLON.Mesh( 'mesh_'+mdat.id, this._scene )
+    var vdat = new BABYLON.VertexData()
+    vdat.positions = mdat.positions
+    vdat.indices = mdat.indices
+    vdat.normals = mdat.normals
+    vdat.colors = mdat.colors
+    if (mdat.uvs) vdat.uvs = mdat.uvs
+    
+    vdat.applyToMesh( m )
+    if (x) m.position.x = x
+    if (y) m.position.y = y
+    if (z) m.position.z = z
+    
+    m.material = mat
+  }
 }
 
 
+function getMaterial( rendering, id ) {
+  var mat = rendering._materials[id]
+  if (!mat) {
+    var scene = rendering._scene
+    // TODO: get material/block metadata from somewhere
+    var matData = noa.materialData[id]
 
+    // make material
+    mat = new BABYLON.StandardMaterial("mat_"+id, scene)
+    // little shine to remind myself this is an engine material
+    mat.specularColor = new col3( 0.15, 0.15, 0.15 )
+
+    if (matData.texture) {
+      mat.ambientTexture = new BABYLON.Texture(matData.texture, scene, true,false,BABYLON.Texture.NEAREST_SAMPLINGMODE)
+    }
+    
+    rendering._materials[id] = mat
+  }
+  return mat
+}
 
 
 
@@ -28908,9 +28925,13 @@ function addNewChunk( world, id ) {
 
 // create a given chunk, using the world's generator and chunkSize
 function createChunk( world, i, j, k ) {
-  var gen = world.generator
+  // create ndarray to hold the data
   var cs = world.chunkSize
-  var chunk = world.generator( i*cs, j*cs, k*cs, cs, cs, cs )
+  var arr = new Uint8Array(cs*cs*cs)
+  var chunk = new ndarray( arr, [cs,cs,cs] )
+  // pass it to generator for actual data generation
+  var gen = world.generator
+  world.generator( chunk, i*cs, j*cs, k*cs )
   return chunk
 }
 
@@ -28957,13 +28978,14 @@ function checkForMissingChunks( world, ci, cj, ck ) {
 
 
 // sample generator function
-//   args are x/y/z to start from, and size (dx/dy/dz) to generate
-//   returns an ndarray of block IDs
+//   takes an empty chunk, and an x/y/z to start from
+//   writes data into the chunk (ndarray)
 // TODO: which typedarray is best?
 
-function defaultGenerator( x, y, z, dx, dy, dz ) {
-  var arr = new Uint8Array(dx*dy*dz)
-  var chunk = new ndarray( arr, [dx,dy,dz] )
+function defaultGenerator( chunk, x, y, z ) {
+  var dx = chunk.shape[0]
+  var dy = chunk.shape[1]
+  var dz = chunk.shape[2]
   // default case - just return 1/2 for everything below y=5
   for (var i=0; i<dx; ++i) {
     for (var j=0; j<dy; ++j) {
@@ -28975,7 +28997,6 @@ function defaultGenerator( x, y, z, dx, dy, dz ) {
       }
     }
   }
-  return chunk
 }
 
 
@@ -33105,9 +33126,9 @@ function Inputs(element, opts) {
   }
 
   // internal state
-  this._bindings = {}
-  this._keyStates = {}
-  this._bindPressCounts = {}
+  this._keybindmap = {}       // { 'vkeycode' : [ 'binding', 'binding2' ] }
+  this._keyStates = {}        // { 'vkeycode' : boolean }
+  this._bindPressCounts = {}  // { 'binding' : int }
 
   // register for dom events
   this.initEvents()
@@ -33134,24 +33155,24 @@ Inputs.prototype.initEvents = function() {
 
 
 // Usage:  bind( bindingName, vkeyCode, vkeyCode.. )
-//    Note that inputs._bindings maps vkey codes to binding names
-//    e.g. this._bindings['a'] = 'move-left'
+//    Note that inputs._keybindmap maps vkey codes to binding names
+//    e.g. this._keybindmap['a'] = 'move-left'
 Inputs.prototype.bind = function(binding) {
   for (var i=1; i<arguments.length; ++i) {
     var vkeyCode = arguments[i]
-    var arr = this._bindings[vkeyCode] || []
+    var arr = this._keybindmap[vkeyCode] || []
     if (arr.indexOf(binding) == -1) {
       arr.push(binding)
     }
-    this._bindings[vkeyCode] = arr
+    this._keybindmap[vkeyCode] = arr
   }
   this.state[binding] = !!this.state[binding]
 }
 
 // search out and remove all keycodes bound to a given binding
 Inputs.prototype.unbind = function(binding) {
-  for (var b in this._bindings) {
-    var arr = this._bindings[b]
+  for (var b in this._keybindmap) {
+    var arr = this._keybindmap[b]
     var i = arr.indexOf(binding)
     if (i>-1) { arr.splice(i,1) }
   }
@@ -33164,9 +33185,9 @@ Inputs.prototype.tick = function() {
 
 
 
-Inputs.prototype.getBindings = function() {
+Inputs.prototype.getBoundKeys = function() {
   var arr = []
-  for (var b in this._bindings) { arr.push(b) }
+  for (var b in this._keybindmap) { arr.push(b) }
   return arr
 }
 
@@ -33191,7 +33212,7 @@ function onMouseEvent(inputs, wasDown, ev) {
 
 function onContextMenu(inputs) {
   // cancel context menu if there's a binding for right mousebutton
-  var arr = inputs._bindings['<mouse 3>']
+  var arr = inputs._keybindmap['<mouse 3>']
   if (arr) { return false }
 }
 
@@ -33211,7 +33232,7 @@ function onMouseMove(inputs, ev) {
 
 
 function handleKeyEvent(keycode, vcode, wasDown, inputs, ev) {
-  var arr = inputs._bindings[vcode]
+  var arr = inputs._keybindmap[vcode]
   // don't prevent defaults if there's no binding
   if (!arr) { return }
   if (inputs.preventDefaults) ev.preventDefault()
@@ -33262,7 +33283,7 @@ function XOR(a,b) {
 
 
 
-},{"events":69,"vkey":15}],15:[function(require,module,exports){
+},{"events":141,"vkey":15}],15:[function(require,module,exports){
 var ua = typeof window !== 'undefined' ? window.navigator.userAgent : ''
   , isOSX = /OS X/.test(ua)
   , isOpera = /Opera/.test(ua)
@@ -34295,7 +34316,7 @@ function createShell(options) {
   
   //Set bindings
   if(options.bindings) {
-    shell.bindings = options.bindings
+    shell.bindings = bindings
   }
   
   //Wait for dom to intiailize
@@ -34423,7 +34444,7 @@ function createShell(options) {
 
 module.exports = createShell
 
-},{"./lib/hrtime-polyfill.js":16,"./lib/mousewheel-polyfill.js":17,"./lib/raf-polyfill.js":18,"binary-search-bounds":19,"domready":20,"events":69,"invert-hash":21,"iota-array":22,"uniq":23,"util":73,"vkey":24}],26:[function(require,module,exports){
+},{"./lib/hrtime-polyfill.js":16,"./lib/mousewheel-polyfill.js":17,"./lib/raf-polyfill.js":18,"binary-search-bounds":19,"domready":20,"events":141,"invert-hash":21,"iota-array":22,"uniq":23,"util":145,"vkey":24}],26:[function(require,module,exports){
 module.exports = add;
 
 /**
@@ -35452,7 +35473,7 @@ function wrappedNDArrayCtor(data, shape, stride, offset) {
 
 module.exports = wrappedNDArrayCtor
 }).call(this,require("buffer").Buffer)
-},{"buffer":65,"iota-array":60}],60:[function(require,module,exports){
+},{"buffer":137,"iota-array":60}],60:[function(require,module,exports){
 module.exports=require(22)
 },{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/game-shell/node_modules/iota-array/iota.js":22}],61:[function(require,module,exports){
 'use strict';
@@ -35680,7 +35701,75 @@ function clamp(value, to) {
   return isFinite(to) ? Math.max(Math.min(value, to), -to) : value
 }
 
-},{"extend":13,"gl-vec3":37}],62:[function(require,module,exports){
+},{"extend":62,"gl-vec3":74}],62:[function(require,module,exports){
+module.exports=require(13)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/extend/index.js":13}],63:[function(require,module,exports){
+module.exports=require(26)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/add.js":26}],64:[function(require,module,exports){
+module.exports=require(27)
+},{"./dot":71,"./fromValues":73,"./normalize":82,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/angle.js":27}],65:[function(require,module,exports){
+module.exports=require(28)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/clone.js":28}],66:[function(require,module,exports){
+module.exports=require(29)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/copy.js":29}],67:[function(require,module,exports){
+module.exports=require(30)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/create.js":30}],68:[function(require,module,exports){
+module.exports=require(31)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/cross.js":31}],69:[function(require,module,exports){
+module.exports=require(32)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/distance.js":32}],70:[function(require,module,exports){
+module.exports=require(33)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/divide.js":33}],71:[function(require,module,exports){
+module.exports=require(34)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/dot.js":34}],72:[function(require,module,exports){
+module.exports=require(35)
+},{"./create":67,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/forEach.js":35}],73:[function(require,module,exports){
+module.exports=require(36)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/fromValues.js":36}],74:[function(require,module,exports){
+module.exports=require(37)
+},{"./add":63,"./angle":64,"./clone":65,"./copy":66,"./create":67,"./cross":68,"./distance":69,"./divide":70,"./dot":71,"./forEach":72,"./fromValues":73,"./inverse":75,"./length":76,"./lerp":77,"./max":78,"./min":79,"./multiply":80,"./negate":81,"./normalize":82,"./random":83,"./rotateX":84,"./rotateY":85,"./rotateZ":86,"./scale":87,"./scaleAndAdd":88,"./set":89,"./squaredDistance":90,"./squaredLength":91,"./subtract":92,"./transformMat3":93,"./transformMat4":94,"./transformQuat":95,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/index.js":37}],75:[function(require,module,exports){
+module.exports=require(38)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/inverse.js":38}],76:[function(require,module,exports){
+module.exports=require(39)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/length.js":39}],77:[function(require,module,exports){
+module.exports=require(40)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/lerp.js":40}],78:[function(require,module,exports){
+module.exports=require(41)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/max.js":41}],79:[function(require,module,exports){
+module.exports=require(42)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/min.js":42}],80:[function(require,module,exports){
+module.exports=require(43)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/multiply.js":43}],81:[function(require,module,exports){
+module.exports=require(44)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/negate.js":44}],82:[function(require,module,exports){
+module.exports=require(45)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/normalize.js":45}],83:[function(require,module,exports){
+module.exports=require(46)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/random.js":46}],84:[function(require,module,exports){
+module.exports=require(47)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/rotateX.js":47}],85:[function(require,module,exports){
+module.exports=require(48)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/rotateY.js":48}],86:[function(require,module,exports){
+module.exports=require(49)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/rotateZ.js":49}],87:[function(require,module,exports){
+module.exports=require(50)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/scale.js":50}],88:[function(require,module,exports){
+module.exports=require(51)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/scaleAndAdd.js":51}],89:[function(require,module,exports){
+module.exports=require(52)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/set.js":52}],90:[function(require,module,exports){
+module.exports=require(53)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/squaredDistance.js":53}],91:[function(require,module,exports){
+module.exports=require(54)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/squaredLength.js":54}],92:[function(require,module,exports){
+module.exports=require(55)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/subtract.js":55}],93:[function(require,module,exports){
+module.exports=require(56)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/transformMat3.js":56}],94:[function(require,module,exports){
+module.exports=require(57)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/transformMat4.js":57}],95:[function(require,module,exports){
+module.exports=require(58)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/transformQuat.js":58}],96:[function(require,module,exports){
 'use strict';
 
 var collisions = require('collide-3d-tilemap')
@@ -35756,6 +35845,7 @@ var world_x0 = vec3.create()
 ,  world_dx = vec3.create()
 ,  friction = vec3.create()
 ,  a = vec3.create()
+,  g = vec3.create()
 ,  dv = vec3.create()
 ,  dx = vec3.create()
 
@@ -35769,12 +35859,13 @@ Physics.prototype.tick = function(dt) {
 
     // semi-implicit Euler integration
 
-    // a = f/m + gravity
-    vec3.scale( a, b._forces, 1/b._mass )
-    vec3.add  ( a, a, this.gravity )
+    // a = f/m + gravity*gravityMultiplier
+    vec3.scale( a, b._forces, 1/b.mass )
+    vec3.scale( g, this.gravity, b.gravityMultiplier )
+    vec3.add  ( a, a, g )
 
     // v1 = v0 + i/m + a*dt
-    vec3.scale( dv, b._impulses, 1/b._mass )
+    vec3.scale( dv, b._impulses, 1/b.mass )
     vec3.add  ( b.velocity, b.velocity, dv )
     vec3.scale( dv, a, dt )
     vec3.add  ( b.velocity, b.velocity, dv )
@@ -35828,7 +35919,11 @@ Physics.prototype.tick = function(dt) {
 
 
 
-},{"./rigidBody":64,"aabb-3d":11,"collide-3d-tilemap":63,"extend":13,"gl-vec3":37}],63:[function(require,module,exports){
+},{"./rigidBody":134,"aabb-3d":97,"collide-3d-tilemap":99,"extend":100,"gl-vec3":112}],97:[function(require,module,exports){
+module.exports=require(11)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/aabb-3d/index.js":11,"gl-matrix":98}],98:[function(require,module,exports){
+module.exports=require(12)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/aabb-3d/node_modules/gl-matrix/dist/gl-matrix.js":12}],99:[function(require,module,exports){
 module.exports = function(field, tilesize, dimensions, offset) {
   dimensions = dimensions || [ 
     Math.sqrt(field.length) >> 0
@@ -35916,7 +36011,75 @@ module.exports = function(field, tilesize, dimensions, offset) {
   }  
 }
 
-},{}],64:[function(require,module,exports){
+},{}],100:[function(require,module,exports){
+module.exports=require(13)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/extend/index.js":13}],101:[function(require,module,exports){
+module.exports=require(26)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/add.js":26}],102:[function(require,module,exports){
+module.exports=require(27)
+},{"./dot":109,"./fromValues":111,"./normalize":120,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/angle.js":27}],103:[function(require,module,exports){
+module.exports=require(28)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/clone.js":28}],104:[function(require,module,exports){
+module.exports=require(29)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/copy.js":29}],105:[function(require,module,exports){
+module.exports=require(30)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/create.js":30}],106:[function(require,module,exports){
+module.exports=require(31)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/cross.js":31}],107:[function(require,module,exports){
+module.exports=require(32)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/distance.js":32}],108:[function(require,module,exports){
+module.exports=require(33)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/divide.js":33}],109:[function(require,module,exports){
+module.exports=require(34)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/dot.js":34}],110:[function(require,module,exports){
+module.exports=require(35)
+},{"./create":105,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/forEach.js":35}],111:[function(require,module,exports){
+module.exports=require(36)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/fromValues.js":36}],112:[function(require,module,exports){
+module.exports=require(37)
+},{"./add":101,"./angle":102,"./clone":103,"./copy":104,"./create":105,"./cross":106,"./distance":107,"./divide":108,"./dot":109,"./forEach":110,"./fromValues":111,"./inverse":113,"./length":114,"./lerp":115,"./max":116,"./min":117,"./multiply":118,"./negate":119,"./normalize":120,"./random":121,"./rotateX":122,"./rotateY":123,"./rotateZ":124,"./scale":125,"./scaleAndAdd":126,"./set":127,"./squaredDistance":128,"./squaredLength":129,"./subtract":130,"./transformMat3":131,"./transformMat4":132,"./transformQuat":133,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/index.js":37}],113:[function(require,module,exports){
+module.exports=require(38)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/inverse.js":38}],114:[function(require,module,exports){
+module.exports=require(39)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/length.js":39}],115:[function(require,module,exports){
+module.exports=require(40)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/lerp.js":40}],116:[function(require,module,exports){
+module.exports=require(41)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/max.js":41}],117:[function(require,module,exports){
+module.exports=require(42)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/min.js":42}],118:[function(require,module,exports){
+module.exports=require(43)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/multiply.js":43}],119:[function(require,module,exports){
+module.exports=require(44)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/negate.js":44}],120:[function(require,module,exports){
+module.exports=require(45)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/normalize.js":45}],121:[function(require,module,exports){
+module.exports=require(46)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/random.js":46}],122:[function(require,module,exports){
+module.exports=require(47)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/rotateX.js":47}],123:[function(require,module,exports){
+module.exports=require(48)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/rotateY.js":48}],124:[function(require,module,exports){
+module.exports=require(49)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/rotateZ.js":49}],125:[function(require,module,exports){
+module.exports=require(50)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/scale.js":50}],126:[function(require,module,exports){
+module.exports=require(51)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/scaleAndAdd.js":51}],127:[function(require,module,exports){
+module.exports=require(52)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/set.js":52}],128:[function(require,module,exports){
+module.exports=require(53)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/squaredDistance.js":53}],129:[function(require,module,exports){
+module.exports=require(54)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/squaredLength.js":54}],130:[function(require,module,exports){
+module.exports=require(55)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/subtract.js":55}],131:[function(require,module,exports){
+module.exports=require(56)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/transformMat3.js":56}],132:[function(require,module,exports){
+module.exports=require(57)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/transformMat4.js":57}],133:[function(require,module,exports){
+module.exports=require(58)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/transformQuat.js":58}],134:[function(require,module,exports){
 
 var aabb = require('aabb-3d')
 ,   vec3 = require('gl-vec3')
@@ -35944,7 +36107,8 @@ function RigidBody(avatar, _aabb) {
   // internals
   this._forces = vec3.create()
   this._impulses = vec3.create()
-  this._mass = 1
+  this.mass = 1
+  this.gravityMultiplier = 1
 }
 
 RigidBody.prototype.setPosition = function(p) {
@@ -35970,7 +36134,455 @@ RigidBody.prototype.atRestY = function() { return this.resting[1] }
 RigidBody.prototype.atRestZ = function() { return this.resting[2] }
 
 
-},{"aabb-3d":11,"gl-vec3":37}],65:[function(require,module,exports){
+},{"aabb-3d":97,"gl-vec3":112}],135:[function(require,module,exports){
+/*
+ * A fast javascript implementation of simplex noise by Jonas Wagner
+ *
+ * Based on a speed-improved simplex noise algorithm for 2D, 3D and 4D in Java.
+ * Which is based on example code by Stefan Gustavson (stegu@itn.liu.se).
+ * With Optimisations by Peter Eastman (peastman@drizzle.stanford.edu).
+ * Better rank ordering method by Stefan Gustavson in 2012.
+ *
+ *
+ * Copyright (C) 2012 Jonas Wagner
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining
+ * a copy of this software and associated documentation files (the
+ * "Software"), to deal in the Software without restriction, including
+ * without limitation the rights to use, copy, modify, merge, publish,
+ * distribute, sublicense, and/or sell copies of the Software, and to
+ * permit persons to whom the Software is furnished to do so, subject to
+ * the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+ * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+ * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+ * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+ */
+(function () {
+
+var F2 = 0.5 * (Math.sqrt(3.0) - 1.0),
+    G2 = (3.0 - Math.sqrt(3.0)) / 6.0,
+    F3 = 1.0 / 3.0,
+    G3 = 1.0 / 6.0,
+    F4 = (Math.sqrt(5.0) - 1.0) / 4.0,
+    G4 = (5.0 - Math.sqrt(5.0)) / 20.0;
+
+
+function SimplexNoise(random) {
+    if (!random) random = Math.random;
+    this.p = new Uint8Array(256);
+    this.perm = new Uint8Array(512);
+    this.permMod12 = new Uint8Array(512);
+    for (var i = 0; i < 256; i++) {
+        this.p[i] = random() * 256;
+    }
+    for (i = 0; i < 512; i++) {
+        this.perm[i] = this.p[i & 255];
+        this.permMod12[i] = this.perm[i] % 12;
+    }
+
+}
+SimplexNoise.prototype = {
+    grad3: new Float32Array([1, 1, 0,
+                            - 1, 1, 0,
+                            1, - 1, 0,
+
+                            - 1, - 1, 0,
+                            1, 0, 1,
+                            - 1, 0, 1,
+
+                            1, 0, - 1,
+                            - 1, 0, - 1,
+                            0, 1, 1,
+
+                            0, - 1, 1,
+                            0, 1, - 1,
+                            0, - 1, - 1]),
+    grad4: new Float32Array([0, 1, 1, 1, 0, 1, 1, - 1, 0, 1, - 1, 1, 0, 1, - 1, - 1,
+                            0, - 1, 1, 1, 0, - 1, 1, - 1, 0, - 1, - 1, 1, 0, - 1, - 1, - 1,
+                            1, 0, 1, 1, 1, 0, 1, - 1, 1, 0, - 1, 1, 1, 0, - 1, - 1,
+                            - 1, 0, 1, 1, - 1, 0, 1, - 1, - 1, 0, - 1, 1, - 1, 0, - 1, - 1,
+                            1, 1, 0, 1, 1, 1, 0, - 1, 1, - 1, 0, 1, 1, - 1, 0, - 1,
+                            - 1, 1, 0, 1, - 1, 1, 0, - 1, - 1, - 1, 0, 1, - 1, - 1, 0, - 1,
+                            1, 1, 1, 0, 1, 1, - 1, 0, 1, - 1, 1, 0, 1, - 1, - 1, 0,
+                            - 1, 1, 1, 0, - 1, 1, - 1, 0, - 1, - 1, 1, 0, - 1, - 1, - 1, 0]),
+    noise2D: function (xin, yin) {
+        var permMod12 = this.permMod12,
+            perm = this.perm,
+            grad3 = this.grad3;
+        var n0, n1, n2; // Noise contributions from the three corners
+        // Skew the input space to determine which simplex cell we're in
+        var s = (xin + yin) * F2; // Hairy factor for 2D
+        var i = Math.floor(xin + s);
+        var j = Math.floor(yin + s);
+        var t = (i + j) * G2;
+        var X0 = i - t; // Unskew the cell origin back to (x,y) space
+        var Y0 = j - t;
+        var x0 = xin - X0; // The x,y distances from the cell origin
+        var y0 = yin - Y0;
+        // For the 2D case, the simplex shape is an equilateral triangle.
+        // Determine which simplex we are in.
+        var i1, j1; // Offsets for second (middle) corner of simplex in (i,j) coords
+        if (x0 > y0) {
+            i1 = 1;
+            j1 = 0;
+        } // lower triangle, XY order: (0,0)->(1,0)->(1,1)
+        else {
+            i1 = 0;
+            j1 = 1;
+        } // upper triangle, YX order: (0,0)->(0,1)->(1,1)
+        // A step of (1,0) in (i,j) means a step of (1-c,-c) in (x,y), and
+        // a step of (0,1) in (i,j) means a step of (-c,1-c) in (x,y), where
+        // c = (3-sqrt(3))/6
+        var x1 = x0 - i1 + G2; // Offsets for middle corner in (x,y) unskewed coords
+        var y1 = y0 - j1 + G2;
+        var x2 = x0 - 1.0 + 2.0 * G2; // Offsets for last corner in (x,y) unskewed coords
+        var y2 = y0 - 1.0 + 2.0 * G2;
+        // Work out the hashed gradient indices of the three simplex corners
+        var ii = i & 255;
+        var jj = j & 255;
+        // Calculate the contribution from the three corners
+        var t0 = 0.5 - x0 * x0 - y0 * y0;
+        if (t0 < 0) n0 = 0.0;
+        else {
+            var gi0 = permMod12[ii + perm[jj]] * 3;
+            t0 *= t0;
+            n0 = t0 * t0 * (grad3[gi0] * x0 + grad3[gi0 + 1] * y0); // (x,y) of grad3 used for 2D gradient
+        }
+        var t1 = 0.5 - x1 * x1 - y1 * y1;
+        if (t1 < 0) n1 = 0.0;
+        else {
+            var gi1 = permMod12[ii + i1 + perm[jj + j1]] * 3;
+            t1 *= t1;
+            n1 = t1 * t1 * (grad3[gi1] * x1 + grad3[gi1 + 1] * y1);
+        }
+        var t2 = 0.5 - x2 * x2 - y2 * y2;
+        if (t2 < 0) n2 = 0.0;
+        else {
+            var gi2 = permMod12[ii + 1 + perm[jj + 1]] * 3;
+            t2 *= t2;
+            n2 = t2 * t2 * (grad3[gi2] * x2 + grad3[gi2 + 1] * y2);
+        }
+        // Add contributions from each corner to get the final noise value.
+        // The result is scaled to return values in the interval [-1,1].
+        return 70.0 * (n0 + n1 + n2);
+    },
+    // 3D simplex noise
+    noise3D: function (xin, yin, zin) {
+        var permMod12 = this.permMod12,
+            perm = this.perm,
+            grad3 = this.grad3;
+        var n0, n1, n2, n3; // Noise contributions from the four corners
+        // Skew the input space to determine which simplex cell we're in
+        var s = (xin + yin + zin) * F3; // Very nice and simple skew factor for 3D
+        var i = Math.floor(xin + s);
+        var j = Math.floor(yin + s);
+        var k = Math.floor(zin + s);
+        var t = (i + j + k) * G3;
+        var X0 = i - t; // Unskew the cell origin back to (x,y,z) space
+        var Y0 = j - t;
+        var Z0 = k - t;
+        var x0 = xin - X0; // The x,y,z distances from the cell origin
+        var y0 = yin - Y0;
+        var z0 = zin - Z0;
+        // For the 3D case, the simplex shape is a slightly irregular tetrahedron.
+        // Determine which simplex we are in.
+        var i1, j1, k1; // Offsets for second corner of simplex in (i,j,k) coords
+        var i2, j2, k2; // Offsets for third corner of simplex in (i,j,k) coords
+        if (x0 >= y0) {
+            if (y0 >= z0) {
+                i1 = 1;
+                j1 = 0;
+                k1 = 0;
+                i2 = 1;
+                j2 = 1;
+                k2 = 0;
+            } // X Y Z order
+            else if (x0 >= z0) {
+                i1 = 1;
+                j1 = 0;
+                k1 = 0;
+                i2 = 1;
+                j2 = 0;
+                k2 = 1;
+            } // X Z Y order
+            else {
+                i1 = 0;
+                j1 = 0;
+                k1 = 1;
+                i2 = 1;
+                j2 = 0;
+                k2 = 1;
+            } // Z X Y order
+        }
+        else { // x0<y0
+            if (y0 < z0) {
+                i1 = 0;
+                j1 = 0;
+                k1 = 1;
+                i2 = 0;
+                j2 = 1;
+                k2 = 1;
+            } // Z Y X order
+            else if (x0 < z0) {
+                i1 = 0;
+                j1 = 1;
+                k1 = 0;
+                i2 = 0;
+                j2 = 1;
+                k2 = 1;
+            } // Y Z X order
+            else {
+                i1 = 0;
+                j1 = 1;
+                k1 = 0;
+                i2 = 1;
+                j2 = 1;
+                k2 = 0;
+            } // Y X Z order
+        }
+        // A step of (1,0,0) in (i,j,k) means a step of (1-c,-c,-c) in (x,y,z),
+        // a step of (0,1,0) in (i,j,k) means a step of (-c,1-c,-c) in (x,y,z), and
+        // a step of (0,0,1) in (i,j,k) means a step of (-c,-c,1-c) in (x,y,z), where
+        // c = 1/6.
+        var x1 = x0 - i1 + G3; // Offsets for second corner in (x,y,z) coords
+        var y1 = y0 - j1 + G3;
+        var z1 = z0 - k1 + G3;
+        var x2 = x0 - i2 + 2.0 * G3; // Offsets for third corner in (x,y,z) coords
+        var y2 = y0 - j2 + 2.0 * G3;
+        var z2 = z0 - k2 + 2.0 * G3;
+        var x3 = x0 - 1.0 + 3.0 * G3; // Offsets for last corner in (x,y,z) coords
+        var y3 = y0 - 1.0 + 3.0 * G3;
+        var z3 = z0 - 1.0 + 3.0 * G3;
+        // Work out the hashed gradient indices of the four simplex corners
+        var ii = i & 255;
+        var jj = j & 255;
+        var kk = k & 255;
+        // Calculate the contribution from the four corners
+        var t0 = 0.6 - x0 * x0 - y0 * y0 - z0 * z0;
+        if (t0 < 0) n0 = 0.0;
+        else {
+            var gi0 = permMod12[ii + perm[jj + perm[kk]]] * 3;
+            t0 *= t0;
+            n0 = t0 * t0 * (grad3[gi0] * x0 + grad3[gi0 + 1] * y0 + grad3[gi0 + 2] * z0);
+        }
+        var t1 = 0.6 - x1 * x1 - y1 * y1 - z1 * z1;
+        if (t1 < 0) n1 = 0.0;
+        else {
+            var gi1 = permMod12[ii + i1 + perm[jj + j1 + perm[kk + k1]]] * 3;
+            t1 *= t1;
+            n1 = t1 * t1 * (grad3[gi1] * x1 + grad3[gi1 + 1] * y1 + grad3[gi1 + 2] * z1);
+        }
+        var t2 = 0.6 - x2 * x2 - y2 * y2 - z2 * z2;
+        if (t2 < 0) n2 = 0.0;
+        else {
+            var gi2 = permMod12[ii + i2 + perm[jj + j2 + perm[kk + k2]]] * 3;
+            t2 *= t2;
+            n2 = t2 * t2 * (grad3[gi2] * x2 + grad3[gi2 + 1] * y2 + grad3[gi2 + 2] * z2);
+        }
+        var t3 = 0.6 - x3 * x3 - y3 * y3 - z3 * z3;
+        if (t3 < 0) n3 = 0.0;
+        else {
+            var gi3 = permMod12[ii + 1 + perm[jj + 1 + perm[kk + 1]]] * 3;
+            t3 *= t3;
+            n3 = t3 * t3 * (grad3[gi3] * x3 + grad3[gi3 + 1] * y3 + grad3[gi3 + 2] * z3);
+        }
+        // Add contributions from each corner to get the final noise value.
+        // The result is scaled to stay just inside [-1,1]
+        return 32.0 * (n0 + n1 + n2 + n3);
+    },
+    // 4D simplex noise, better simplex rank ordering method 2012-03-09
+    noise4D: function (x, y, z, w) {
+        var permMod12 = this.permMod12,
+            perm = this.perm,
+            grad4 = this.grad4;
+
+        var n0, n1, n2, n3, n4; // Noise contributions from the five corners
+        // Skew the (x,y,z,w) space to determine which cell of 24 simplices we're in
+        var s = (x + y + z + w) * F4; // Factor for 4D skewing
+        var i = Math.floor(x + s);
+        var j = Math.floor(y + s);
+        var k = Math.floor(z + s);
+        var l = Math.floor(w + s);
+        var t = (i + j + k + l) * G4; // Factor for 4D unskewing
+        var X0 = i - t; // Unskew the cell origin back to (x,y,z,w) space
+        var Y0 = j - t;
+        var Z0 = k - t;
+        var W0 = l - t;
+        var x0 = x - X0; // The x,y,z,w distances from the cell origin
+        var y0 = y - Y0;
+        var z0 = z - Z0;
+        var w0 = w - W0;
+        // For the 4D case, the simplex is a 4D shape I won't even try to describe.
+        // To find out which of the 24 possible simplices we're in, we need to
+        // determine the magnitude ordering of x0, y0, z0 and w0.
+        // Six pair-wise comparisons are performed between each possible pair
+        // of the four coordinates, and the results are used to rank the numbers.
+        var rankx = 0;
+        var ranky = 0;
+        var rankz = 0;
+        var rankw = 0;
+        if (x0 > y0) rankx++;
+        else ranky++;
+        if (x0 > z0) rankx++;
+        else rankz++;
+        if (x0 > w0) rankx++;
+        else rankw++;
+        if (y0 > z0) ranky++;
+        else rankz++;
+        if (y0 > w0) ranky++;
+        else rankw++;
+        if (z0 > w0) rankz++;
+        else rankw++;
+        var i1, j1, k1, l1; // The integer offsets for the second simplex corner
+        var i2, j2, k2, l2; // The integer offsets for the third simplex corner
+        var i3, j3, k3, l3; // The integer offsets for the fourth simplex corner
+        // simplex[c] is a 4-vector with the numbers 0, 1, 2 and 3 in some order.
+        // Many values of c will never occur, since e.g. x>y>z>w makes x<z, y<w and x<w
+        // impossible. Only the 24 indices which have non-zero entries make any sense.
+        // We use a thresholding to set the coordinates in turn from the largest magnitude.
+        // Rank 3 denotes the largest coordinate.
+        i1 = rankx >= 3 ? 1 : 0;
+        j1 = ranky >= 3 ? 1 : 0;
+        k1 = rankz >= 3 ? 1 : 0;
+        l1 = rankw >= 3 ? 1 : 0;
+        // Rank 2 denotes the second largest coordinate.
+        i2 = rankx >= 2 ? 1 : 0;
+        j2 = ranky >= 2 ? 1 : 0;
+        k2 = rankz >= 2 ? 1 : 0;
+        l2 = rankw >= 2 ? 1 : 0;
+        // Rank 1 denotes the second smallest coordinate.
+        i3 = rankx >= 1 ? 1 : 0;
+        j3 = ranky >= 1 ? 1 : 0;
+        k3 = rankz >= 1 ? 1 : 0;
+        l3 = rankw >= 1 ? 1 : 0;
+        // The fifth corner has all coordinate offsets = 1, so no need to compute that.
+        var x1 = x0 - i1 + G4; // Offsets for second corner in (x,y,z,w) coords
+        var y1 = y0 - j1 + G4;
+        var z1 = z0 - k1 + G4;
+        var w1 = w0 - l1 + G4;
+        var x2 = x0 - i2 + 2.0 * G4; // Offsets for third corner in (x,y,z,w) coords
+        var y2 = y0 - j2 + 2.0 * G4;
+        var z2 = z0 - k2 + 2.0 * G4;
+        var w2 = w0 - l2 + 2.0 * G4;
+        var x3 = x0 - i3 + 3.0 * G4; // Offsets for fourth corner in (x,y,z,w) coords
+        var y3 = y0 - j3 + 3.0 * G4;
+        var z3 = z0 - k3 + 3.0 * G4;
+        var w3 = w0 - l3 + 3.0 * G4;
+        var x4 = x0 - 1.0 + 4.0 * G4; // Offsets for last corner in (x,y,z,w) coords
+        var y4 = y0 - 1.0 + 4.0 * G4;
+        var z4 = z0 - 1.0 + 4.0 * G4;
+        var w4 = w0 - 1.0 + 4.0 * G4;
+        // Work out the hashed gradient indices of the five simplex corners
+        var ii = i & 255;
+        var jj = j & 255;
+        var kk = k & 255;
+        var ll = l & 255;
+        // Calculate the contribution from the five corners
+        var t0 = 0.6 - x0 * x0 - y0 * y0 - z0 * z0 - w0 * w0;
+        if (t0 < 0) n0 = 0.0;
+        else {
+            var gi0 = (perm[ii + perm[jj + perm[kk + perm[ll]]]] % 32) * 4;
+            t0 *= t0;
+            n0 = t0 * t0 * (grad4[gi0] * x0 + grad4[gi0 + 1] * y0 + grad4[gi0 + 2] * z0 + grad4[gi0 + 3] * w0);
+        }
+        var t1 = 0.6 - x1 * x1 - y1 * y1 - z1 * z1 - w1 * w1;
+        if (t1 < 0) n1 = 0.0;
+        else {
+            var gi1 = (perm[ii + i1 + perm[jj + j1 + perm[kk + k1 + perm[ll + l1]]]] % 32) * 4;
+            t1 *= t1;
+            n1 = t1 * t1 * (grad4[gi1] * x1 + grad4[gi1 + 1] * y1 + grad4[gi1 + 2] * z1 + grad4[gi1 + 3] * w1);
+        }
+        var t2 = 0.6 - x2 * x2 - y2 * y2 - z2 * z2 - w2 * w2;
+        if (t2 < 0) n2 = 0.0;
+        else {
+            var gi2 = (perm[ii + i2 + perm[jj + j2 + perm[kk + k2 + perm[ll + l2]]]] % 32) * 4;
+            t2 *= t2;
+            n2 = t2 * t2 * (grad4[gi2] * x2 + grad4[gi2 + 1] * y2 + grad4[gi2 + 2] * z2 + grad4[gi2 + 3] * w2);
+        }
+        var t3 = 0.6 - x3 * x3 - y3 * y3 - z3 * z3 - w3 * w3;
+        if (t3 < 0) n3 = 0.0;
+        else {
+            var gi3 = (perm[ii + i3 + perm[jj + j3 + perm[kk + k3 + perm[ll + l3]]]] % 32) * 4;
+            t3 *= t3;
+            n3 = t3 * t3 * (grad4[gi3] * x3 + grad4[gi3 + 1] * y3 + grad4[gi3 + 2] * z3 + grad4[gi3 + 3] * w3);
+        }
+        var t4 = 0.6 - x4 * x4 - y4 * y4 - z4 * z4 - w4 * w4;
+        if (t4 < 0) n4 = 0.0;
+        else {
+            var gi4 = (perm[ii + 1 + perm[jj + 1 + perm[kk + 1 + perm[ll + 1]]]] % 32) * 4;
+            t4 *= t4;
+            n4 = t4 * t4 * (grad4[gi4] * x4 + grad4[gi4 + 1] * y4 + grad4[gi4 + 2] * z4 + grad4[gi4 + 3] * w4);
+        }
+        // Sum up and scale the result to cover the range [-1,1]
+        return 27.0 * (n0 + n1 + n2 + n3 + n4);
+    }
+
+
+};
+
+// amd
+if (typeof define !== 'undefined' && define.amd) define(function(){return SimplexNoise;});
+// browser
+else if (typeof window !== 'undefined') window.SimplexNoise = SimplexNoise;
+//common js
+if (typeof exports !== 'undefined') exports.SimplexNoise = SimplexNoise;
+// nodejs
+if (typeof module !== 'undefined') {
+    module.exports = SimplexNoise;
+}
+
+})();
+
+},{}],136:[function(require,module,exports){
+'use strict';
+
+var SimplexNoise = require('simplex-noise')
+
+module.exports = generate
+
+
+var simplex = new SimplexNoise()
+window.simples = simplex
+var xzScale = 64,
+    yScale = 6
+
+
+function generate( chunk, x, y, z ) {
+  var dx = chunk.shape[0]
+  var dy = chunk.shape[1]
+  var dz = chunk.shape[2]
+  // default case - just return 1/2 for everything below y=5
+  for (var i=0; i<dx; ++i) {
+    for (var k=0; k<dz; ++k) {
+      // simple heightmap
+      var cx = (x+i)/xzScale
+      var cz = (z+k)/xzScale
+      var height = Math.round( yScale * simplex.noise2D(cx,cz) )
+      // height = -yscale..yscale
+      for (var j=0; j<dy; ++j) {
+        var cy = y + j
+        var blockID = (cy > height) ? 0 : 1   // air/dirt
+        if (cy==height) {
+          if (cy <-yScale/2) blockID = 2      // cobblestone
+          if (cy >= 0) blockID = 3            // grass
+          if (cy >= yScale/2) blockID = 4     // gray
+        }
+        chunk.set( i,j,k, blockID )
+      }
+    }
+  }
+}
+
+},{"simplex-noise":135}],137:[function(require,module,exports){
 /*!
  * The buffer module from node.js, for the browser.
  *
@@ -37023,7 +37635,7 @@ function decodeUtf8Char (str) {
   }
 }
 
-},{"base64-js":66,"ieee754":67,"is-array":68}],66:[function(require,module,exports){
+},{"base64-js":138,"ieee754":139,"is-array":140}],138:[function(require,module,exports){
 var lookup = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
 ;(function (exports) {
@@ -37145,7 +37757,7 @@ var lookup = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 	exports.fromByteArray = uint8ToBase64
 }(typeof exports === 'undefined' ? (this.base64js = {}) : exports))
 
-},{}],67:[function(require,module,exports){
+},{}],139:[function(require,module,exports){
 exports.read = function(buffer, offset, isLE, mLen, nBytes) {
   var e, m,
       eLen = nBytes * 8 - mLen - 1,
@@ -37231,7 +37843,7 @@ exports.write = function(buffer, value, offset, isLE, mLen, nBytes) {
   buffer[offset + i - d] |= s * 128;
 };
 
-},{}],68:[function(require,module,exports){
+},{}],140:[function(require,module,exports){
 
 /**
  * isArray
@@ -37266,7 +37878,7 @@ module.exports = isArray || function (val) {
   return !! val && '[object Array]' == str.call(val);
 };
 
-},{}],69:[function(require,module,exports){
+},{}],141:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -37569,7 +38181,7 @@ function isUndefined(arg) {
   return arg === void 0;
 }
 
-},{}],70:[function(require,module,exports){
+},{}],142:[function(require,module,exports){
 if (typeof Object.create === 'function') {
   // implementation from standard node.js 'util' module
   module.exports = function inherits(ctor, superCtor) {
@@ -37594,7 +38206,7 @@ if (typeof Object.create === 'function') {
   }
 }
 
-},{}],71:[function(require,module,exports){
+},{}],143:[function(require,module,exports){
 // shim for using process in browser
 
 var process = module.exports = {};
@@ -37682,14 +38294,14 @@ process.chdir = function (dir) {
     throw new Error('process.chdir is not supported');
 };
 
-},{}],72:[function(require,module,exports){
+},{}],144:[function(require,module,exports){
 module.exports = function isBuffer(arg) {
   return arg && typeof arg === 'object'
     && typeof arg.copy === 'function'
     && typeof arg.fill === 'function'
     && typeof arg.readUInt8 === 'function';
 }
-},{}],73:[function(require,module,exports){
+},{}],145:[function(require,module,exports){
 (function (process,global){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -38279,4 +38891,4 @@ function hasOwnProperty(obj, prop) {
 }
 
 }).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./support/isBuffer":72,"_process":71,"inherits":70}]},{},[1]);
+},{"./support/isBuffer":144,"_process":143,"inherits":142}]},{},[1]);
