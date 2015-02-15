@@ -48,7 +48,7 @@ function Engine(opts) {
 
   // register for domReady event to sent up GL events, etc.
   this.container._shell.on('init', this.onDomReady.bind(this))
-  
+
   // create world manager
   this.world = createWorld( this, opts )
 
@@ -60,25 +60,26 @@ function Engine(opts) {
 
   // controls - hooks up input events to physics of player, etc.
   this.controls = createControls( this, opts )
-  
-  
-  
-  
-  
-  
-  // ad-hoc stuff from here on:
-  
+
+
+
+
+
+
+  // ad-hoc stuff to set up player and camera
+  //  ..this should be modularized somewhere
+
 
   var pbox = new aabb( [0,30,0], [2/3, 3/2, 2/3] )
   this.playerBody = this.physics.addBody( {}, pbox )
-  
+
   var cameraOffset = [ 1/3, 3/2, 1/3 ]
   this.getCameraPosition = function() {
     var pos = vec3.create()
     vec3.add( pos, this.playerBody.aabb.base, cameraOffset )
     return pos
   }
-  
+
   var c = this.rendering._camera
   this.controls.setTarget( this.playerBody )
   var accessor = {
@@ -91,14 +92,58 @@ function Engine(opts) {
     }
   }
   this.controls.setCameraAccessor( accessor )
+
+
+
+
+  // ad-hoc stuff for managing blockIDs and materials
+  // this should be modularized into a registry of some kind
   
+  
+  // accessor for mapping block IDs to material ID of a given face
+  // dir is a value 0..5: [ +x, -x, +y, -y, +z, -z ]
+  this.blockToMaterial = function(id, dir) {
+    var m = this.blockMaterialMap[id]
+    return (m.length) ? m[dir] : m
+  }
+  
+  // data structure for mapping block IDs to material ID
+  // array means values for each face: [ +x, -x, +y, -y, +z, -z ]
+  this.blockMaterialMap = [
+    null,             // 0: air
+    1,                // 1: dirt
+    [3,3,2,1,3,3],    // 2: grass block
+    4,                // 3: cobblestone block
+    5                 // 4: gray color
+  ]
+
+  // maps material IDs to base colors (i.e. vertex colors)
+  this.materialColors = [
+    null,               // 0: air
+    [ 1,1,1 ],          // 1: dirt
+    [ 1,1,1 ],          // 2: grass
+    [ 1,1,1 ],          // 3: grass_dirt
+    [ 1,1,1 ],          // 4: cobblestone
+    [ 0.9, 0.9, 0.95 ]  // 5: solid white color
+  ]
+  
+  // maps material IDs to texture paths
+  this.materialTextures = [
+    null,                                    // 0: air
+    opts.texturePath + "dirt.png",           // 1: dirt
+    opts.texturePath + "grass.png",          // 2: grass
+    opts.texturePath + "grass_dirt.png",     // 3: grass_dirt
+    opts.texturePath + "cobblestone.png",    // 4: cobblestone
+    null                                     // 5: solid white color
+  ]
+  
+  
+
+
 
 
   // temp hacks for development
-  
-  //  c.position = new BABYLON.Vector3(8,5,8)
-  //  c.setTarget( new BABYLON.Vector3(0,0,0) )
-//  c.attachControl(document, false)
+
   window.noa = this
   window.ndarray = require('ndarray')
   var debug = false
@@ -107,28 +152,10 @@ function Engine(opts) {
       debug = !debug
       if (debug) scene.debugLayer.show(); else scene.debugLayer.hide();
     }
-//    if(e.keyCode==89) { runChunkTest() } // y
-    //    if(e.keyCode==66) { runBitTest() } // b
   })
-  //  scene.activeCamera.keysUp.push(87) // w
-  //  scene.activeCamera.keysLeft.push(65) // a
-  //  scene.activeCamera.keysDown.push(83) // s
-  //  scene.activeCamera.keysRight.push(68) // d
 
-  this.inputs.down.on('move-right', function() {
-    scene.activeCamera.position.x += 5
-    console.log(scene.activeCamera.position.x)
-  })
-  
-  // this should eventually come from a registry of some kind
-  this.materialData = [
-    null,
-    { texture: opts.texturePath+"dirt.png" },
-    { texture: opts.texturePath+"cobblestone.png" },
-    { texture: opts.texturePath+"grass.png" },
-    { color: [ 0.9, 0.9, 0.95 ] }
-  ]
-  
+
+
 }
 
 
@@ -175,8 +202,8 @@ Engine.prototype.render = function(dt) {
 Engine.prototype.onChunkAdded = function(chunk, i, j, k) {
   // TODO: pass in material/colors/chunk metadata somehow
   var aovals = [ 1, 0.8, 0.6 ]
-  var matData = this.materialData
-  var meshDataArr = this.mesher.meshChunk( chunk, matData, aovals )
+  var getMaterial = this.blockToMaterial.bind(this)
+  var meshDataArr = this.mesher.meshChunk( chunk, getMaterial, this.materialColors, aovals )
   if (meshDataArr.length) { // empty if the chunk is empty
     var cs = this.world.chunkSize
     this.rendering.addMeshDataArray( meshDataArr, i*cs, j*cs, k*cs )
@@ -28048,8 +28075,6 @@ module.exports=BABYLON;
 'use strict';
 
 var extend = require('extend')
-//var Stats = require('./stats')
-//var Detector = require('./detector')
 var createGameShell = require('game-shell')
 
 module.exports = function(noa, opts) {
@@ -28251,10 +28276,9 @@ function Mesher(noa, _opts) {
 
 //    PUBLIC API
 
-Mesher.prototype.meshChunk = function(chunk, colors, aoValues, noAO) {
-  if (!aoValues) aoValues = [ 0.8, 0.7, 0.5 ]
-  return greedyND(chunk, colors, aoValues, !noAO)
-  //      return greedy_original(chunk)
+Mesher.prototype.meshChunk = function(chunk, getMaterial, matColors, aoValues, noAO) {
+  if (!aoValues) aoValues = [ 1, 0.75, 0.5 ]
+  return greedyND(chunk, getMaterial, matColors, aoValues, !noAO)
 }
 
 
@@ -28277,20 +28301,20 @@ function Submesh(id) {
  *        http://0fps.net/2012/07/07/meshing-minecraft-part-2/
  *    
  *    Arguments:
- *        arr: 3D ndarray of dimensions X,Y,Z
- *             Assumes that truthy values are opaque,
- *             and different indexes should be separate submeshes of result
- *        colors: array of base vertex colors for each submesh
- *             i.e. colors[3] will be the color used for blocks of value=3
- *        ao: whether or not to bake ambient occlusion into vertex colors
+ *        arr: 3D ndarray of block ID, dimensions X,Y,Z
+ *             Assumes for now that truthy values are opaque.
+ *        getMaterial: function( blockID, dir )
+ *             returns a material ID based on block id and which cube face it is
+ *             (assume for now that each mat ID should get its own mesh)
  *        aoValues: array of multipliers for AO levels 0-2 (0 is no occlusion)
+ *        ao: whether or not to bake ambient occlusion into vertex colors
  *
- *    Return object:
- *        obj.vertices - ints, range 0 .. X/Y/Z
- *        obj.indices  - ints
- *        obj.normals  - ints,   -1 .. 1
- *        obj.colors   - floats,  0 .. 1
- *        obj.uvs      - floats,  0 .. X/Y/Z
+ *    Return object: array of mesh objects keyed by material ID
+ *        arr[id].vertices - ints, range 0 .. X/Y/Z
+ *        arr[id].indices  - ints
+ *        arr[id].normals  - ints,   -1 .. 1
+ *        arr[id].colors   - floats,  0 .. 1
+ *        arr[id].uvs      - floats,  0 .. X/Y/Z
 */
 
 
@@ -28300,21 +28324,21 @@ var mask = new Int8Array(4096),
 var d, u, v, 
     arrT, len0, len1, len2,
     i, j, k, n, 
-    v0, v1, maskVal, dir, block, l, m, w, h,
+    id0, id1, cmp, id, dir, maskVal, block, l, m, w, h,
     ao, jpos, jneg,
     ao00, ao01, ao10, ao11, du, dv, 
     x, q, m1, m2, pos, norm,
-    defaultColor = [1,1,1,1] // base color for textured polys
+    matID, mesh, c, triDir, vs
 
 
-function greedyND(arr, materialData, aoValues, doAO) {
+function greedyND(arr, getMaterial, matColors, aoValues, doAO) {
   var meshes = [] // return object, holder for Submeshes
 
   //Sweep over each axis, mapping axes to [d,u,v]
   for(d=0; d<3; ++d) {
     u = (d+1)%3
     v = (d+2)%3
-
+    
     // make transposed ndarray so index i is the axis we're sweeping
     arrT = arr.transpose(d,u,v)
     len0 = arrT.shape[0]
@@ -28335,11 +28359,20 @@ function greedyND(arr, materialData, aoValues, doAO) {
       for(k=0; k<len2; ++k) {
         for(j=0; j<len1; ++j) {
 
-          // set mask to 0 if no face needed (if v0/v1 have equal truthiness),
-          // otherwise to block index, with sign indicating face direction
-          v0 = ( i<1     ? false : arrT.get(i-1, j, k))
-          v1 = ( i==len0 ? false : arrT.get(  i, j, k))
-          mask[n] = v0 ? ( v1 ? 0 : v0 ) : ( v1 ? -v1 : 0 )
+          // set mask to 0 if no face needed (if id0/id1 have equal truthiness),
+          // otherwise to material ID, with sign indicating face direction
+          id0 = ( i<1     ? false : arrT.get(i-1, j, k))
+          id1 = ( i==len0 ? false : arrT.get(  i, j, k))
+          cmp = id0 ? (id1 ? 0 : 1) : (id1 ? -1 : 0)
+          if (cmp === 0) {
+            mask[n] = 0
+          } else {
+            // convert id. face is 0..5 ==> +x, -x, +y, -y, +z, -z 
+            block = (id0) ? id0 : id1
+            dir = d*2 + (cmp>0 ? 0 : 1)
+            mask[n] = cmp * getMaterial(block,dir)
+          }
+          
 
           if (mask[n] && doAO) {
             // construct ao mask from data on the non-opaque side of the face
@@ -28388,7 +28421,6 @@ function greedyND(arr, materialData, aoValues, doAO) {
 
             maskVal = mask[n]
             dir = (maskVal > 0)
-            block = Math.abs(maskVal)
             ao = aomask[n]
 
             //Compute width of area with same mask/aomask values
@@ -28413,13 +28445,11 @@ function greedyND(arr, materialData, aoValues, doAO) {
             }
 
             // material and mesh for this face
-            var mesh = meshes[block]
-            if (!mesh) mesh = meshes[block] = new Submesh(block)
-            var mat = materialData[block]
-
-            var c = (mat.color) ? mat.color : defaultColor
-            // TODO: facing
-
+            matID = Math.abs(maskVal)
+            mesh = meshes[matID]
+            if (!mesh) mesh = meshes[matID] = new Submesh(matID)
+            c = matColors[matID]
+            
             // push AO-modified vertex colors (or just colors)
             if (doAO) {
               ao00 = determineAO( ao,  0,  0 )
@@ -28431,10 +28461,10 @@ function greedyND(arr, materialData, aoValues, doAO) {
               pushAOColor( mesh.colors, c, ao11, aoValues )
               pushAOColor( mesh.colors, c, ao01, aoValues )
             } else {
-              mesh.colors.push( c[0], c[1], c[2], c[3] )
-              mesh.colors.push( c[0], c[1], c[2], c[3] )
-              mesh.colors.push( c[0], c[1], c[2], c[3] )
-              mesh.colors.push( c[0], c[1], c[2], c[3] )
+              mesh.colors.push( c[0], c[1], c[2], 1 )
+              mesh.colors.push( c[0], c[1], c[2], 1 )
+              mesh.colors.push( c[0], c[1], c[2], 1 )
+              mesh.colors.push( c[0], c[1], c[2], 1 )
             }
 
             //Add quad, vertices = x -> x+du -> x+du+dv -> x+dv
@@ -28451,20 +28481,27 @@ function greedyND(arr, materialData, aoValues, doAO) {
                      x[0]+du[0]+dv[0], x[1]+du[1]+dv[1], x[2]+du[2]+dv[2],
                      x[0]      +dv[0], x[1]      +dv[1], x[2]      +dv[2]  )
 
-            var vs = pos.length/3 - 4
             
-            // add uv values if the material is textured
-            if (mat.texture) {
-              mesh.uvs.push( j,   k   )
-              mesh.uvs.push( j+w, k   )
-              mesh.uvs.push( j+w, k+h )
-              mesh.uvs.push( j,   k+h )
+            // add uv values
+            if (d===0) {
+              // draw +x/-x faces in different order, so that
+              // texture-space's V axis matches world-space's Y
+              mesh.uvs.push( 0, w )
+              mesh.uvs.push( 0, 0 )
+              mesh.uvs.push( h, 0 )
+              mesh.uvs.push( h, w )
+            } else {
+              mesh.uvs.push( 0, h )
+              mesh.uvs.push( w, h )
+              mesh.uvs.push( w, 0 )
+              mesh.uvs.push( 0, 0 )
             }
 
             // Add indexes, ordered clockwise for the facing direction;
             // decide which way to split the quad based on ao colors
 
-            var triDir = (doAO) ? (ao00==ao11) || ao01!=ao10 : true
+            triDir = (doAO) ? (ao00==ao11) || ao01!=ao10 : true
+            vs = pos.length/3 - 4
 
             if (maskVal<0) {
               if (triDir) {
@@ -28538,125 +28575,6 @@ function pushAOColor( colors, baseCol, ao, aoVals ) {
 }
 
 
-
-
-
-
-
-
-
-// Earlier version of greedy mesher that doesn't use ndarray#transpose
-
-function greedy_original(arr) {
-  var pos = [], indices = [], norms = [], colors = [], uvs = []
-  var dims = arr.shape
-
-  //Sweep over each axis, mapping axes to [d,u,v]
-  for(d=0; d<3; ++d) {
-    u = (d+1)%3
-    v = (d+2)%3
-    x = [0,0,0] // mapped indices for iterating through slices of data
-    q = [0,0,0] // mapped index offsets
-    if (mask.length < dims[u] * dims[u]) {
-      mask = new Int32Array(dims[u] * dims[u]);
-    }
-    q[d] = 1
-    for(x[d]=-1; x[d]<dims[d]; ) {
-      //Compute mask
-      n = 0;
-      for(x[v]=0; x[v]<dims[v]; ++x[v])
-        for(x[u]=0; x[u]<dims[u]; ++x[u]) {
-          //          mask[n++] =
-          //            (0    <= x[d]      ? arr.get(x[0],      x[1],      x[2])      : false) !=
-          //            (x[d] <  dims[d]-1 ? arr.get(x[0]+q[0], x[1]+q[1], x[2]+q[2]) : false);
-          var m1 = 0    <= x[d]      ? arr.get(x[0],      x[1],      x[2])      : false
-          var m2 = x[d] <  dims[d]-1 ? arr.get(x[0]+q[0], x[1]+q[1], x[2]+q[2]) : false
-          //          mask[n++] = (m1 != m2) ? (m1 ? 1 : -1)  : false    // (truthy if we need a face between m1/m2
-          mask[n++] = m1 ? ( m2 ? false : 1 ) : ( m2 ? -1 : false  )  // (truthy if we need a face between m1/m2
-        }
-      //Increment x[d]
-      ++x[d];
-      //Generate mesh for mask using lexicographic ordering
-      n = 0;
-      for(j=0; j<dims[v]; ++j)
-        for(i=0; i<dims[u]; ) {
-          if(mask[n]) {
-            //Compute width
-            for(w=1; mask[n]==mask[n+w] && i+w<dims[u]; ++w) {
-            }
-            //Compute height (this is slightly awkward
-            var done = false;
-            for(h=1; j+h<dims[v]; ++h) {
-              for(k=0; k<w; ++k) {
-                if(mask[n]!=mask[n+k+h*dims[u]]) {
-                  done = true;
-                  break;
-                }
-              }
-              if(done) {
-                break;
-              }
-            }
-            //Add quad, vertices = x -> x+du -> x+du+dv -> x+dv
-            x[u] = i;  x[v] = j;
-            var du = [0,0,0]; du[u] = w;
-            var dv = [0,0,0]; dv[v] = h;
-
-            pos.push(x[0],             x[1],             x[2],
-                     x[0]+du[0],       x[1]+du[1],       x[2]+du[2],
-                     x[0]+du[0]+dv[0], x[1]+du[1]+dv[1], x[2]+du[2]+dv[2],
-                     x[0]      +dv[0], x[1]      +dv[1], x[2]      +dv[2]  )
-
-            var vs = pos.length/3 - 4
-
-            // facing of tris depends on clockwise order of indices
-            if (mask[n]>0) {
-              indices.push( vs, vs+2, vs+1, vs, vs+3, vs+2 )
-            } else {
-              indices.push( vs, vs+1, vs+2, vs, vs+2, vs+3 )
-            }
-
-            // norms depend on which direction the mask was solid in..
-            norm = [0,0,0]
-            norm[d] = (mask[n]>0) ? 1 : -1
-            // same norm for all vertices
-            norms.push(norm[0], norm[1], norm[2], 
-                       norm[0], norm[1], norm[2], 
-                       norm[0], norm[1], norm[2], 
-                       norm[0], norm[1], norm[2] )
-
-
-            var c = 0.7
-            colors.push(c, c, c, 1, 
-                        c, c, c, 1, 
-                        c, c, c, 1, 
-                        c, c, c, 1 )
-
-
-            //Zero-out mask
-            for(l=0; l<h; ++l)
-              for(k=0; k<w; ++k) {
-                mask[n+k+l*dims[u]] = false
-              }
-            //Increment counters and continue
-            i += w
-            n += w
-          } else {
-            ++i;
-            ++n
-          }
-        }
-    }
-  }
-  // return mesh data
-  return {
-    positions:  pos,
-    indices:    indices,
-    normals:    norms,
-    colors:     colors,
-    uvs:        uvs
-  }
-}
 
 
 
@@ -28777,26 +28695,27 @@ Rendering.prototype.resize = function(e) {
 
 
 Rendering.prototype.addMeshDataArray = function(meshArr, x, y, z) {
-  for (var i in meshArr) { // array is sparse for now
+  // meshArr is what comes from mesher - sparsely keyed
+  for (var i in meshArr) {
     // mdat is instance of Mesher#Submesh
     var mdat = meshArr[i]
     // get or create babylon material
     var mat = getMaterial(this, mdat.id)
 
     var m = new BABYLON.Mesh( 'mesh_'+mdat.id, this._scene )
+    m.material = mat
+    
     var vdat = new BABYLON.VertexData()
     vdat.positions = mdat.positions
-    vdat.indices = mdat.indices
-    vdat.normals = mdat.normals
-    vdat.colors = mdat.colors
-    if (mdat.uvs) vdat.uvs = mdat.uvs
+    vdat.indices =   mdat.indices
+    vdat.normals =   mdat.normals
+    vdat.colors =    mdat.colors
+    vdat.uvs =       mdat.uvs
     
     vdat.applyToMesh( m )
     if (x) m.position.x = x
     if (y) m.position.y = y
     if (z) m.position.z = z
-    
-    m.material = mat
   }
 }
 
@@ -28805,18 +28724,15 @@ function getMaterial( rendering, id ) {
   var mat = rendering._materials[id]
   if (!mat) {
     var scene = rendering._scene
-    // TODO: get material/block metadata from somewhere
-    var matData = noa.materialData[id]
-
-    // make material
+    // make a new material
     mat = new BABYLON.StandardMaterial("mat_"+id, scene)
     // little shine to remind myself this is an engine material
     mat.specularColor = new col3( 0.15, 0.15, 0.15 )
-
-    if (matData.texture) {
-      mat.ambientTexture = new BABYLON.Texture(matData.texture, scene, true,false,BABYLON.Texture.NEAREST_SAMPLINGMODE)
+    // apply texture if there is one
+    var tex = rendering.noa.materialTextures[id]
+    if (tex) {
+      mat.ambientTexture = new BABYLON.Texture(tex, scene, true,false,BABYLON.Texture.NEAREST_SAMPLINGMODE)
     }
-    
     rendering._materials[id] = mat
   }
   return mat
@@ -36552,7 +36468,7 @@ module.exports = generate
 
 var simplex = new SimplexNoise()
 window.simples = simplex
-var xzScale = 64,
+var xzScale = 80,
     yScale = 6
 
 
@@ -36572,8 +36488,8 @@ function generate( chunk, x, y, z ) {
         var cy = y + j
         var blockID = (cy > height) ? 0 : 1   // air/dirt
         if (cy==height) {
-          if (cy <-yScale/2) blockID = 2      // cobblestone
-          if (cy >= 0) blockID = 3            // grass
+          if (cy <-yScale/2) blockID = 3      // cobblestone
+          if (cy >= -1) blockID = 2            // grass
           if (cy >= yScale/2) blockID = 4     // gray
         }
         chunk.set( i,j,k, blockID )
