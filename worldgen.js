@@ -7,7 +7,7 @@ module.exports = generate
 
 var simplex = new SimplexNoise()
 window.simples = simplex
-var xzScale = 64,
+var xzScale = 80,
     yScale = 6
 
 
@@ -27,8 +27,8 @@ function generate( chunk, x, y, z ) {
         var cy = y + j
         var blockID = (cy > height) ? 0 : 1   // air/dirt
         if (cy==height) {
-          if (cy <-yScale/2) blockID = 2      // cobblestone
-          if (cy >= 0) blockID = 3            // grass
+          if (cy <-yScale/2) blockID = 3      // cobblestone
+          if (cy >= -1) blockID = 2            // grass
           if (cy >= yScale/2) blockID = 4     // gray
         }
         chunk.set( i,j,k, blockID )
