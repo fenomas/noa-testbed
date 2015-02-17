@@ -19,7 +19,7 @@ var game = noa( opts )
 
 
 
-},{"./worldgen":136,"noa":2}],2:[function(require,module,exports){
+},{"./worldgen":137,"noa":2}],2:[function(require,module,exports){
 
 var ndarray = require('ndarray')
 var aabb = require('aabb-3d')
@@ -31,6 +31,7 @@ var createMesher = require('./lib/mesher')
 var createInputs = require('./lib/inputs')
 var createPhysics = require('./lib/physics')
 var createControls = require('./lib/controls')
+var raycast = require('voxel-raycast')
 
 module.exports = Engine
 
@@ -62,7 +63,7 @@ function Engine(opts) {
   this.controls = createControls( this, opts )
 
 
-
+  
 
 
 
@@ -107,45 +108,114 @@ function Engine(opts) {
     return (m.length) ? m[dir] : m
   }
   
-  // data structure for mapping block IDs to material ID
-  // array means values for each face: [ +x, -x, +y, -y, +z, -z ]
-  this.blockMaterialMap = [
-    null,             // 0: air
-    1,                // 1: dirt
-    [3,3,2,1,3,3],    // 2: grass block
-    4,                // 3: cobblestone block
-    5                 // 4: gray color
-  ]
-
-  // maps material IDs to base colors (i.e. vertex colors)
-  this.materialColors = [
-    null,               // 0: air
-    [ 1,1,1 ],          // 1: dirt
-    [ 1,1,1 ],          // 2: grass
-    [ 1,1,1 ],          // 3: grass_dirt
-    [ 1,1,1 ],          // 4: cobblestone
-    [ 0.9, 0.9, 0.95 ]  // 5: solid white color
-  ]
+  // data structures mapping block IDs to materials/colors
+  // array maps block ID to material by face: [ +x, -x, +y, -y, +z, -z ]
+  this.blockMaterialMap = [ null ]  // 0: air
+  this.materialColors =   [ null ]  // 0: air
+  this.materialTextures = [ null ]  // 0: air
   
-  // maps material IDs to texture paths
-  this.materialTextures = [
-    null,                                    // 0: air
-    opts.texturePath + "dirt.png",           // 1: dirt
-    opts.texturePath + "grass.png",          // 2: grass
-    opts.texturePath + "grass_dirt.png",     // 3: grass_dirt
-    opts.texturePath + "cobblestone.png",    // 4: cobblestone
-    null                                     // 5: solid white color
-  ]
+  // makeshift registry
+  this.defineBlock = function( id, matID ) {
+    this.blockMaterialMap[id] = matID
+  }
+  this.defineMaterial = function( id, col, tex ) {
+    this.materialColors[id] = col
+    this.materialTextures[id] = tex ? opts.texturePath+tex+'.png' : null
+  }
+  
+  this.defineBlock( 1, 1 )    // dirt
+  this.defineBlock( 2, [3,3,2,1,3,3] ) // grass
+  this.defineBlock( 3, 4 )    // stone
+  this.defineBlock( 4, 5 )
+  this.defineBlock( 5, 6 )
+  this.defineBlock( 6, 7 )    // colors
+  this.defineBlock( 7, 8 )
+  this.defineBlock( 8, 9 )
+  this.defineBlock( 9,10 )
+  this.defineBlock(10,11 )
   
   
+  
+  this.defineMaterial( 1, [1,1,1], "dirt" )
+  this.defineMaterial( 2, [1,1,1], "grass" )
+  this.defineMaterial( 3, [1,1,1], "grass_dirt" )
+  this.defineMaterial( 4, [1,1,1], "cobblestone" )
+  this.defineMaterial( 5, [ 0.9, 0.9, 0.95 ], null )
+  this.defineMaterial( 6, [ 0.3, 0.9, 0.4 ], null )
+  this.defineMaterial( 7, [ 0.9, 0.5, 0.4 ], null )
+  this.defineMaterial( 8, [ 0.3, 0.4, 0.9 ], null )
+  this.defineMaterial( 9, [ 0.7, 0.9, 0.4 ], null )
+  this.defineMaterial(10, [ 0.3, 0.7, 0.9 ], null )
+  this.defineMaterial(11, [ 0.8, 0.2, 0.7 ], null )
+  
+  
+  
+  
+  // ad-hoc raycasting/highlighting stuff
+  var traceRay = raycast.bind({}, this.world)
+  this.pick = function(distance) {
+    var cpos = this.getCameraPosition()
+    var crot = this.rendering._camera.rotation
+    var cvec = vec3.fromValues( 0,0,10 ) // +z is forward direction
+    vec3.rotateX( cvec, cvec, [0,0,0], crot.x )
+    vec3.rotateY( cvec, cvec, [0,0,0], crot.y )
+    var hit_normal = []
+    var hit_position = []
+    var hit_block = traceRay(cpos, cvec, distance, hit_position, hit_normal)
+    currTargetBlock = hit_block
+    if (currTargetBlock) currTargetLoc = hit_position.map(Math.floor)
+    if (currTargetBlock) currTargetNorm = hit_normal
+    return !!hit_block
+  }
+  
+  var currTargetBlock = 0
+  var currTargetLoc = []
+  var currTargetNorm = []
 
-
+  this.highlightPickedBlock = function() {
+    var hit = this.pick(10)
+    var loc = currTargetLoc
+    this.rendering.highlightBlock( hit, loc[0], loc[1], loc[2] )
+  }
+  
+  this.pickTest = function() {
+    var cpos = this.getCameraPosition()
+    var crot = this.rendering._camera.rotation
+    var cvec = vec3.fromValues( 0,0,10 ) // +z is forward direction
+    vec3.rotateY( cvec, cvec, [0,0,0], crot.y )
+    vec3.rotateX( cvec, cvec, [0,0,0], crot.x )
+    console.log(crot)
+  }
+  
+  var placeBlockID = 1
+  var _world = this.world
+  this.inputs.down.on("fire", function() {
+    var loc = currTargetLoc
+    if (currTargetBlock) _world.setBlock( 0, loc[0], loc[1], loc[2] )
+  })
+  this.inputs.down.on("mid-fire", function() {
+    if (currTargetBlock) placeBlockID = currTargetBlock
+  })
+  var pbody = this.playerBody
+  this.inputs.down.on("alt-fire", function() {
+    if (!currTargetBlock) return
+    var loc = [
+      currTargetLoc[0] + currTargetNorm[0],
+      currTargetLoc[1] + currTargetNorm[1],
+      currTargetLoc[2] + currTargetNorm[2]
+    ]
+    var blockbb = new aabb(loc, [1,1,1])
+    if (blockbb.intersects(pbody.aabb)) return
+    _world.setBlock( placeBlockID, loc[0], loc[1], loc[2] )
+  })
+  
 
 
   // temp hacks for development
 
   window.noa = this
-  window.ndarray = require('ndarray')
+  window.ndarray = ndarray
+  window.vec3 = vec3
   var debug = false
   window.addEventListener('keydown', function(e){
     if(e.keyCode==90) { // z
@@ -190,6 +260,7 @@ Engine.prototype.tick = function() {
   this.world.tick(dt)     // currently just does chunking
   this.controls.tick(dt)  // key state -> movement forces
   this.physics.tick(dt)   // iterates physics
+  this.highlightPickedBlock()
   this.inputs.tick(dt)    // clears cumulative frame values
 }
 
@@ -199,15 +270,25 @@ Engine.prototype.render = function(dt) {
 
 
 // ad-hoc - TODO: this should be an event listener
-Engine.prototype.onChunkAdded = function(chunk, i, j, k) {
+Engine.prototype.onChunkAdded = function(chunk, id, i, j, k) {
   // TODO: pass in material/colors/chunk metadata somehow
   var aovals = [ 1, 0.8, 0.6 ]
   var getMaterial = this.blockToMaterial.bind(this)
   var meshDataArr = this.mesher.meshChunk( chunk, getMaterial, this.materialColors, aovals )
   if (meshDataArr.length) { // empty if the chunk is empty
     var cs = this.world.chunkSize
-    this.rendering.addMeshDataArray( meshDataArr, i*cs, j*cs, k*cs )
+    this.rendering.addMeshDataArray( meshDataArr, id, i*cs, j*cs, k*cs )
   }
+}
+
+// ad-hoc - TODO: this should be an event listener
+Engine.prototype.onChunkChanged = function(chunk, id, i, j, k) {
+  // TODO: pass in material/colors/chunk metadata somehow
+  var aovals = [ 1, 0.8, 0.6 ]
+  var getMaterial = this.blockToMaterial.bind(this)
+  var meshDataArr = this.mesher.meshChunk( chunk, getMaterial, this.materialColors, aovals )
+  var cs = this.world.chunkSize
+  this.rendering.updateMeshDataArr( meshDataArr, id, i*cs, j*cs, k*cs )
 }
 
 
@@ -225,7 +306,7 @@ function checkForPointerlock(noa) {
 
 
 
-},{"./lib/container":4,"./lib/controls":5,"./lib/inputs":6,"./lib/mesher":7,"./lib/physics":8,"./lib/rendering":9,"./lib/world":10,"aabb-3d":11,"gl-vec3":37,"ndarray":59}],3:[function(require,module,exports){
+},{"./lib/container":4,"./lib/controls":5,"./lib/inputs":6,"./lib/mesher":7,"./lib/physics":8,"./lib/rendering":9,"./lib/world":10,"aabb-3d":11,"gl-vec3":37,"ndarray":59,"voxel-raycast":135}],3:[function(require,module,exports){
 var __extends = this.__extends || function (d, b) {
     for (var p in b) if (b.hasOwnProperty(p)) d[p] = b[p];
     function __() { this.constructor = d; }
@@ -28229,6 +28310,8 @@ var defaultBindings = {
     "backward": [ "S", "<down>" ],
     "right":    [ "D", "<right>" ],
     "fire":       "<mouse 1>",
+    "mid-fire":   "<mouse 2>",
+    "alt-fire":   "<mouse 3>",
     "jump":       "<space>",
     "sprint":     "<shift>",
     "crouch":     "<control>"
@@ -28694,32 +28777,45 @@ Rendering.prototype.resize = function(e) {
 }
 
 
-Rendering.prototype.addMeshDataArray = function(meshArr, x, y, z) {
+Rendering.prototype.updateMeshDataArr = function(meshArr, id, x, y, z) {
+  var m = this._scene.getMeshByName('m_'+id)
+  if (m) m.dispose()
+  this.addMeshDataArray(meshArr, id, x, y, z)
+}
+
+Rendering.prototype.addMeshDataArray = function(meshArr, id, x, y, z) {
+  //  return this.addMultiMesh(meshArr,x,y,z)
+  
+  // holder mesh - this is what we dispose to get rid of the whole mesh chunk
+  var chunkMesh = new BABYLON.Mesh( 'm_'+id, this._scene )
   // meshArr is what comes from mesher - sparsely keyed
   for (var i in meshArr) {
     // mdat is instance of Mesher#Submesh
     var mdat = meshArr[i]
     // get or create babylon material
     var mat = getMaterial(this, mdat.id)
-
-    var m = new BABYLON.Mesh( 'mesh_'+mdat.id, this._scene )
-    m.material = mat
     
+    var m = new BABYLON.Mesh( "sub", this._scene )
+    m.material = mat
+    m.parent = chunkMesh
+
     var vdat = new BABYLON.VertexData()
     vdat.positions = mdat.positions
     vdat.indices =   mdat.indices
     vdat.normals =   mdat.normals
     vdat.colors =    mdat.colors
     vdat.uvs =       mdat.uvs
-    
+
     vdat.applyToMesh( m )
     if (x) m.position.x = x
     if (y) m.position.y = y
-    if (z) m.position.z = z
+    if (z) m.position.z = z;
   }
 }
 
 
+
+// internal helper..
 function getMaterial( rendering, id ) {
   var mat = rendering._materials[id]
   if (!mat) {
@@ -28740,6 +28836,124 @@ function getMaterial( rendering, id ) {
 
 
 
+Rendering.prototype.highlightBlock = function(show,x,y,z) {
+  var m = getHighlightMesh(this)
+  if (show) {
+    m.position.x = x + 0.5
+    m.position.y = y + 0.5
+    m.position.z = z + 0.5
+  }
+  m.visibility = show
+}
+
+// internal helper..
+function getHighlightMesh(rendering) {
+  var m = rendering._highlightMesh
+  if (!m) {
+    var box = BABYLON.Mesh.CreateBox("hl", 1.0, rendering._scene)
+    box.scaling = new vec3( 1.01, 1.01, 1.01 )
+    var hlm = new BABYLON.StandardMaterial("hl_mat", rendering._scene)
+    hlm.wireframe = true
+    hlm.diffuseColor = new col3(1,0,0)
+    box.material = hlm
+    m = rendering._highlightMesh = box
+  }
+  return m
+}
+
+
+
+
+
+
+
+//
+// Experimental Multi-material version that didn't help performance..
+//
+//Rendering.prototype.addMultiMesh = function(meshArr, x, y, z) {
+//  var scene = this._scene
+//  // mesh to contain combined inputted geometries
+//  var mesh = new BABYLON.Mesh( 'm'+[x,y,z].join('-'), scene )
+//  // make collections of data arrays
+//  var ids       = [],
+//      positions = [],
+//      indices   = [],
+//      normals   = [],
+//      colors    = [],
+//      uvs       = []
+//  // loop through inputs collecting data (array of arrays)
+//  for (var i in meshArr) {
+//    var mdat = meshArr[i]
+//    // mdat is instance of Mesher#Submesh
+//    ids.push(       mdat.id )
+//    positions.push( mdat.positions )
+//    indices.push(   mdat.indices )
+//    normals.push(   mdat.normals )
+//    colors.push(    mdat.colors )
+//    uvs.push(       mdat.uvs )
+//  }
+//  // make a big vdat and concat all the collected array data into it
+//  var vdat = new BABYLON.VertexData()
+//  var arr = []
+//  vdat.positions = arr.concat.apply( [], positions )
+//  vdat.indices =   arr.concat.apply( [], indices )
+//  vdat.normals =   arr.concat.apply( [], normals )
+//  vdat.colors =    arr.concat.apply( [], colors )
+//  vdat.uvs =       arr.concat.apply( [], uvs )
+//  // populate the mesh and give it the multi material
+//  vdat.applyToMesh( mesh )
+//  var mat = getMultiMaterial(this)
+//  mesh.material = mat
+//  // create the submeshes pointing to multimaterial IDs
+//  var vertStart = 0
+//  var indStart = 0
+//  for (i=0; i<ids.length; ++i) {
+//    var matID = ids[i]
+////    var verts = positions[i].length / 3
+////    var verts = vdat.positions.length / 3
+//    var verts = mesh.getTotalVertices()
+//    var inds = indices[i].length
+//    var sub = new BABYLON.SubMesh(matID, vertStart, verts, indStart, inds, mesh)
+//    vertStart += verts
+//    indStart += inds
+////    mesh.subMeshes.push(sub)
+//  }
+////  throw new Error()
+//  // position the created mesh
+//  if (x) mesh.position.x = x
+//  if (y) mesh.position.y = y
+//  if (z) mesh.position.z = z;
+//}
+//
+//function getMultiMaterial( rendering ) {
+//  var scene = rendering._scene
+//  var multi = rendering.multiMat
+//  if (!multi) {
+//    // create a multimate to use for terrain..
+//    multi = rendering.multiMat = new BABYLON.MultiMaterial("multi", scene)
+//    // base material
+//    var base = new BABYLON.StandardMaterial("base", scene)
+//    // little shine to remind myself this is an engine material
+//    base.specularColor = new col3( 0.15, 0.15, 0.15 )
+//    // clone a series, each with necessary texture
+//    var texarr = rendering.noa.materialTextures
+//    for (var i=0; i<texarr.length; ++i) {
+//      var mat = base.clone('submat'+i)
+//      if (texarr[i]) {
+//        mat.ambientTexture = new BABYLON.Texture(texarr[i], scene, true,false, BABYLON.Texture.NEAREST_SAMPLINGMODE)
+//      }
+//      multi.subMaterials.push(mat)
+//    }
+//  }
+//  return multi
+//}
+
+
+
+
+
+
+
 
 },{"./babylon.2.0-beta.debug-CJS":3,"extend":13}],10:[function(require,module,exports){
 'use strict';
@@ -28756,7 +28970,7 @@ module.exports = function(noa, opts) {
 var defaultOptions = {
   generator: defaultGenerator,
   chunkSize: 16,
-  chunkAddDistance: 3,
+  chunkAddDistance: 2,
   chunkHideDistance: 4 // NYI
 
 }
@@ -28802,6 +29016,22 @@ World.prototype.getBlock = function (x,y,z) {
 }
 
 
+World.prototype.setBlock = function (id,x,y,z) {
+  // TODO: revisit this to share code with getBlock, and send an 
+  // event rather than calling into noa.
+  var cs = this.chunkSize
+  var i = Math.floor(x/cs)
+  var j = Math.floor(y/cs)
+  var k = Math.floor(z/cs)
+  var chunk = this._chunks[ getChunkID(i,j,k) ]
+  if (!chunk) return 0
+  x = (x<0) ? x-i*cs : x%cs
+  y = (y<0) ? y-j*cs : y%cs
+  z = (z<0) ? z-k*cs : z%cs
+  chunk.set( x, y, z, id )
+  this.noa.onChunkChanged( chunk, getChunkID(i,j,k), i, j, k )
+}
+
 
 World.prototype.tick = function() {
   // TODO: make noa an emitter and send a movedToNewChunk(?) event
@@ -28834,7 +29064,7 @@ function addNewChunk( world, id ) {
   world._chunks[id] = chunk
   
   // TODO: make world (or noa) an emitter and have this be an event
-  world.noa.onChunkAdded( chunk, loc[0], loc[1], loc[2] )
+  world.noa.onChunkAdded( chunk, id, loc[0], loc[1], loc[2] )
 }
 
 
@@ -33199,7 +33429,7 @@ function XOR(a,b) {
 
 
 
-},{"events":141,"vkey":15}],15:[function(require,module,exports){
+},{"events":142,"vkey":15}],15:[function(require,module,exports){
 var ua = typeof window !== 'undefined' ? window.navigator.userAgent : ''
   , isOSX = /OS X/.test(ua)
   , isOpera = /Opera/.test(ua)
@@ -34360,7 +34590,7 @@ function createShell(options) {
 
 module.exports = createShell
 
-},{"./lib/hrtime-polyfill.js":16,"./lib/mousewheel-polyfill.js":17,"./lib/raf-polyfill.js":18,"binary-search-bounds":19,"domready":20,"events":141,"invert-hash":21,"iota-array":22,"uniq":23,"util":145,"vkey":24}],26:[function(require,module,exports){
+},{"./lib/hrtime-polyfill.js":16,"./lib/mousewheel-polyfill.js":17,"./lib/raf-polyfill.js":18,"binary-search-bounds":19,"domready":20,"events":142,"invert-hash":21,"iota-array":22,"uniq":23,"util":146,"vkey":24}],26:[function(require,module,exports){
 module.exports = add;
 
 /**
@@ -35389,7 +35619,7 @@ function wrappedNDArrayCtor(data, shape, stride, offset) {
 
 module.exports = wrappedNDArrayCtor
 }).call(this,require("buffer").Buffer)
-},{"buffer":137,"iota-array":60}],60:[function(require,module,exports){
+},{"buffer":138,"iota-array":60}],60:[function(require,module,exports){
 module.exports=require(22)
 },{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/game-shell/node_modules/iota-array/iota.js":22}],61:[function(require,module,exports){
 'use strict';
@@ -35816,7 +36046,6 @@ Physics.prototype.tick = function(dt) {
     this.collideWorld( b.aabb, dx, function hit(axis, tile, coords, dir, edge) {
       if (!tile) return false
       if (Math.abs(dx[axis]) < Math.abs(edge)) {
-        throw new Error('a')
         return
       }
       dx[axis] = edge
@@ -36051,6 +36280,228 @@ RigidBody.prototype.atRestZ = function() { return this.resting[2] }
 
 
 },{"aabb-3d":97,"gl-vec3":112}],135:[function(require,module,exports){
+"use strict"
+
+function traceRay_impl(
+  voxels,
+  px, py, pz,
+  dx, dy, dz,
+  max_d,
+  hit_pos,
+  hit_norm,
+  EPSILON) {
+  var t = 0.0
+    , nx=0, ny=0, nz=0
+    , ix, iy, iz
+    , fx, fy, fz
+    , ox, oy, oz
+    , ex, ey, ez
+    , b, step, min_step
+    , floor = Math.floor
+  //Step block-by-block along ray
+  while(t <= max_d) {
+    ox = px + t * dx
+    oy = py + t * dy
+    oz = pz + t * dz
+    ix = floor(ox)|0
+    iy = floor(oy)|0
+    iz = floor(oz)|0
+    fx = ox - ix
+    fy = oy - iy
+    fz = oz - iz
+    b = voxels.getBlock(ix, iy, iz)
+    if(b) {
+      if(hit_pos) {
+        //Clamp to face on hit
+        hit_pos[0] = fx < EPSILON ? +ix : (fx > 1.0-EPSILON ? ix+1.0-EPSILON : ox)
+        hit_pos[1] = fy < EPSILON ? +iy : (fy > 1.0-EPSILON ? iy+1.0-EPSILON : oy)
+        hit_pos[2] = fz < EPSILON ? +iz : (fz > 1.0-EPSILON ? iz+1.0-EPSILON : oz)
+      }
+      if(hit_norm) {
+        hit_norm[0] = nx
+        hit_norm[1] = ny
+        hit_norm[2] = nz
+      }
+      return b
+    }
+    //Check edge cases
+    min_step = +(EPSILON * (1.0 + t))
+    if(t > min_step) {
+      ex = nx < 0 ? fx <= min_step : fx >= 1.0 - min_step
+      ey = ny < 0 ? fy <= min_step : fy >= 1.0 - min_step
+      ez = nz < 0 ? fz <= min_step : fz >= 1.0 - min_step
+      if(ex && ey && ez) {
+        b = voxels.getBlock(ix+nx, iy+ny, iz) ||
+            voxels.getBlock(ix, iy+ny, iz+nz) ||
+            voxels.getBlock(ix+nx, iy, iz+nz)
+        if(b) {
+          if(hit_pos) {
+            hit_pos[0] = nx < 0 ? ix-EPSILON : ix + 1.0-EPSILON
+            hit_pos[1] = ny < 0 ? iy-EPSILON : iy + 1.0-EPSILON
+            hit_pos[2] = nz < 0 ? iz-EPSILON : iz + 1.0-EPSILON
+          }
+          if(hit_norm) {
+            hit_norm[0] = nx
+            hit_norm[1] = ny
+            hit_norm[2] = nz
+          }
+          return b
+        }
+      }
+      if(ex && (ey || ez)) {
+        b = voxels.getBlock(ix+nx, iy, iz)
+        if(b) {
+          if(hit_pos) {
+            hit_pos[0] = nx < 0 ? ix-EPSILON : ix + 1.0-EPSILON
+            hit_pos[1] = fy < EPSILON ? +iy : oy
+            hit_pos[2] = fz < EPSILON ? +iz : oz
+          }
+          if(hit_norm) {
+            hit_norm[0] = nx
+            hit_norm[1] = ny
+            hit_norm[2] = nz
+          }
+          return b
+        }
+      }
+      if(ey && (ex || ez)) {
+        b = voxels.getBlock(ix, iy+ny, iz)
+        if(b) {
+          if(hit_pos) {
+            hit_pos[0] = fx < EPSILON ? +ix : ox
+            hit_pos[1] = ny < 0 ? iy-EPSILON : iy + 1.0-EPSILON
+            hit_pos[2] = fz < EPSILON ? +iz : oz
+          }
+          if(hit_norm) {
+            hit_norm[0] = nx
+            hit_norm[1] = ny
+            hit_norm[2] = nz
+          }
+          return b
+        }
+      }
+      if(ez && (ex || ey)) {
+        b = voxels.getBlock(ix, iy, iz+nz)
+        if(b) {
+          if(hit_pos) {
+            hit_pos[0] = fx < EPSILON ? +ix : ox
+            hit_pos[1] = fy < EPSILON ? +iy : oy
+            hit_pos[2] = nz < 0 ? iz-EPSILON : iz + 1.0-EPSILON
+          }
+          if(hit_norm) {
+            hit_norm[0] = nx
+            hit_norm[1] = ny
+            hit_norm[2] = nz
+          }
+          return b
+        }
+      }
+    }
+    //Walk to next face of cube along ray
+    nx = ny = nz = 0
+    step = 2.0
+    if(dx < -EPSILON) {
+      var s = -fx/dx
+      nx = 1
+      step = s
+    }
+    if(dx > EPSILON) {
+      var s = (1.0-fx)/dx
+      nx = -1
+      step = s
+    }
+    if(dy < -EPSILON) {
+      var s = -fy/dy
+      if(s < step-min_step) {
+        nx = 0
+        ny = 1
+        step = s
+      } else if(s < step+min_step) {
+        ny = 1
+      }
+    }
+    if(dy > EPSILON) {
+      var s = (1.0-fy)/dy
+      if(s < step-min_step) {
+        nx = 0
+        ny = -1
+        step = s
+      } else if(s < step+min_step) {
+        ny = -1
+      }
+    }
+    if(dz < -EPSILON) {
+      var s = -fz/dz
+      if(s < step-min_step) {
+        nx = ny = 0
+        nz = 1
+        step = s
+      } else if(s < step+min_step) {
+        nz = 1
+      }
+    }
+    if(dz > EPSILON) {
+      var s = (1.0-fz)/dz
+      if(s < step-min_step) {
+        nx = ny = 0
+        nz = -1
+        step = s
+      } else if(s < step+min_step) {
+        nz = -1
+      }
+    }
+    if(step > max_d - t) {
+      step = max_d - t - min_step
+    }
+    if(step < min_step) {
+      step = min_step
+    }
+    t += step
+  }
+  if(hit_pos) {
+    hit_pos[0] = ox;
+    hit_pos[1] = oy;
+    hit_pos[2] = oz;
+  }
+  if(hit_norm) {
+    hit_norm[0] = hit_norm[1] = hit_norm[2] = 0;
+  }
+  return 0
+}
+
+function traceRay(voxels, origin, direction, max_d, hit_pos, hit_norm, EPSILON) {
+  var px = +origin[0]
+    , py = +origin[1]
+    , pz = +origin[2]
+    , dx = +direction[0]
+    , dy = +direction[1]
+    , dz = +direction[2]
+    , ds = Math.sqrt(dx*dx + dy*dy + dz*dz)
+  if(typeof(EPSILON) === "undefined") {
+    EPSILON = 1e-8
+  }
+  if(ds < EPSILON) {
+    if(hit_pos) {
+      hit_pos[0] = hit_pos[1] = hit_pos[2]
+    }
+    if(hit_norm) {
+      hit_norm[0] = hit_norm[1] = hit_norm[2]
+    }
+    return 0;
+  }
+  dx /= ds
+  dy /= ds
+  dz /= ds
+  if(typeof(max_d) === "undefined") {
+    max_d = 64.0
+  } else {
+    max_d = +max_d
+  }
+  return traceRay_impl(voxels, px, py, pz, dx, dy, dz, max_d, hit_pos, hit_norm, EPSILON)
+}
+
+module.exports = traceRay
+},{}],136:[function(require,module,exports){
 /*
  * A fast javascript implementation of simplex noise by Jonas Wagner
  *
@@ -36458,7 +36909,7 @@ if (typeof module !== 'undefined') {
 
 })();
 
-},{}],136:[function(require,module,exports){
+},{}],137:[function(require,module,exports){
 'use strict';
 
 var SimplexNoise = require('simplex-noise')
@@ -36486,11 +36937,17 @@ function generate( chunk, x, y, z ) {
       // height = -yscale..yscale
       for (var j=0; j<dy; ++j) {
         var cy = y + j
-        var blockID = (cy > height) ? 0 : 1   // air/dirt
+        var blockID = (cy > height) ? 0 : 1   // default to air/dirt
         if (cy==height) {
-          if (cy <-yScale/2) blockID = 3      // cobblestone
-          if (cy >= -1) blockID = 2            // grass
-          if (cy >= yScale/2) blockID = 4     // gray
+          if (cy <= -4) blockID = 3      // cobblestone
+          if (cy == -3) blockID = 1
+          if (cy == -2) blockID = 4
+          if (cy == -1) blockID = 5
+          if (cy ==  0) blockID = 6
+          if (cy ==  1) blockID = 7
+          if (cy ==  2) blockID = 8
+          if (cy ==  3) blockID = 9
+          if (cy >=  4) blockID = 2      // grass
         }
         chunk.set( i,j,k, blockID )
       }
@@ -36498,7 +36955,7 @@ function generate( chunk, x, y, z ) {
   }
 }
 
-},{"simplex-noise":135}],137:[function(require,module,exports){
+},{"simplex-noise":136}],138:[function(require,module,exports){
 /*!
  * The buffer module from node.js, for the browser.
  *
@@ -37551,7 +38008,7 @@ function decodeUtf8Char (str) {
   }
 }
 
-},{"base64-js":138,"ieee754":139,"is-array":140}],138:[function(require,module,exports){
+},{"base64-js":139,"ieee754":140,"is-array":141}],139:[function(require,module,exports){
 var lookup = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
 ;(function (exports) {
@@ -37673,7 +38130,7 @@ var lookup = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 	exports.fromByteArray = uint8ToBase64
 }(typeof exports === 'undefined' ? (this.base64js = {}) : exports))
 
-},{}],139:[function(require,module,exports){
+},{}],140:[function(require,module,exports){
 exports.read = function(buffer, offset, isLE, mLen, nBytes) {
   var e, m,
       eLen = nBytes * 8 - mLen - 1,
@@ -37759,7 +38216,7 @@ exports.write = function(buffer, value, offset, isLE, mLen, nBytes) {
   buffer[offset + i - d] |= s * 128;
 };
 
-},{}],140:[function(require,module,exports){
+},{}],141:[function(require,module,exports){
 
 /**
  * isArray
@@ -37794,7 +38251,7 @@ module.exports = isArray || function (val) {
   return !! val && '[object Array]' == str.call(val);
 };
 
-},{}],141:[function(require,module,exports){
+},{}],142:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -38097,7 +38554,7 @@ function isUndefined(arg) {
   return arg === void 0;
 }
 
-},{}],142:[function(require,module,exports){
+},{}],143:[function(require,module,exports){
 if (typeof Object.create === 'function') {
   // implementation from standard node.js 'util' module
   module.exports = function inherits(ctor, superCtor) {
@@ -38122,7 +38579,7 @@ if (typeof Object.create === 'function') {
   }
 }
 
-},{}],143:[function(require,module,exports){
+},{}],144:[function(require,module,exports){
 // shim for using process in browser
 
 var process = module.exports = {};
@@ -38210,14 +38667,14 @@ process.chdir = function (dir) {
     throw new Error('process.chdir is not supported');
 };
 
-},{}],144:[function(require,module,exports){
+},{}],145:[function(require,module,exports){
 module.exports = function isBuffer(arg) {
   return arg && typeof arg === 'object'
     && typeof arg.copy === 'function'
     && typeof arg.fill === 'function'
     && typeof arg.readUInt8 === 'function';
 }
-},{}],145:[function(require,module,exports){
+},{}],146:[function(require,module,exports){
 (function (process,global){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -38807,4 +39264,4 @@ function hasOwnProperty(obj, prop) {
 }
 
 }).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./support/isBuffer":144,"_process":143,"inherits":142}]},{},[1]);
+},{"./support/isBuffer":145,"_process":144,"inherits":143}]},{},[1]);
