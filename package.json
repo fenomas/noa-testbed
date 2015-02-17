@@ -16,7 +16,7 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "noa": "andyhall/noa#fa37d56c08da7f7dbc0f5da2a2923ad482b80ccd",
+    "noa": "andyhall/noa#bf485da79234576cacc6af2b1fda7010427240e6",
     "painterly-textures": "0.0.3"
   },
   "devDependencies": {
