@@ -25,11 +25,17 @@ function generate( chunk, x, y, z ) {
       // height = -yscale..yscale
       for (var j=0; j<dy; ++j) {
         var cy = y + j
-        var blockID = (cy > height) ? 0 : 1   // air/dirt
+        var blockID = (cy > height) ? 0 : 1   // default to air/dirt
         if (cy==height) {
-          if (cy <-yScale/2) blockID = 3      // cobblestone
-          if (cy >= -1) blockID = 2            // grass
-          if (cy >= yScale/2) blockID = 4     // gray
+          if (cy <= -4) blockID = 3      // cobblestone
+          if (cy == -3) blockID = 1
+          if (cy == -2) blockID = 4
+          if (cy == -1) blockID = 5
+          if (cy ==  0) blockID = 6
+          if (cy ==  1) blockID = 7
+          if (cy ==  2) blockID = 8
+          if (cy ==  3) blockID = 9
+          if (cy >=  4) blockID = 2      // grass
         }
         chunk.set( i,j,k, blockID )
       }
