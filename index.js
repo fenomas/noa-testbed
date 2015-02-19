@@ -11,7 +11,19 @@ var opts = {
   inverseY: true,
   chunkSize: 32,
   texturePath: 'painterly/',
-  generator: worldGenerator
+  generator: worldGenerator,
+  chunkAddDistance: 3,
+  chunkRemoveDistance: 4,
+  // movement
+  maxSpeed: 10,
+  moveForce: 30,
+  standingFriction: 35,
+  airMoveMult: 0.5,
+  jumpImpulse: 10,
+  jumpForce: 12,
+  jumpTime: 400, // ms
+  airJumps: 1,
+  rotationScale: 0.0025
 }
 
 var game = noa( opts )
