@@ -12,14 +12,26 @@ var opts = {
   inverseY: true,
   chunkSize: 32,
   texturePath: 'painterly/',
-  generator: worldGenerator
+  generator: worldGenerator,
+  chunkAddDistance: 3,
+  chunkRemoveDistance: 4,
+  // movement
+  maxSpeed: 10,
+  moveForce: 30,
+  standingFriction: 35,
+  airMoveMult: 0.5,
+  jumpImpulse: 10,
+  jumpForce: 12,
+  jumpTime: 400, // ms
+  airJumps: 1,
+  rotationScale: 0.0025
 }
 
 var game = noa( opts )
 
 
 
-},{"./worldgen":137,"noa":2}],2:[function(require,module,exports){
+},{"./worldgen":138,"noa":2}],2:[function(require,module,exports){
 
 var ndarray = require('ndarray')
 var aabb = require('aabb-3d')
@@ -41,17 +53,14 @@ function Engine(opts) {
   // container (html/div) manager
   this.container = createContainer(this, opts)
 
-  // rendering manager - abstracts all draws to 3D context
-  this.rendering = createRendering(this, opts, this.container.canvas)
-
   // inputs manager - abstracts key/mouse input
   this.inputs = createInputs(this, opts, this.container._element)
 
-  // register for domReady event to sent up GL events, etc.
-  this.container._shell.on('init', this.onDomReady.bind(this))
-
   // create world manager
   this.world = createWorld( this, opts )
+
+  // rendering manager - abstracts all draws to 3D context
+  this.rendering = createRendering(this, opts, this.container.canvas)
 
   // mesh chunk of world data and hand off to renderer
   this.mesher = createMesher( this, opts )
@@ -126,29 +135,18 @@ function Engine(opts) {
   this.defineBlock( 1, 1 )    // dirt
   this.defineBlock( 2, [3,3,2,1,3,3] ) // grass
   this.defineBlock( 3, 4 )    // stone
-  this.defineBlock( 4, 5 )
-  this.defineBlock( 5, 6 )
-  this.defineBlock( 6, 7 )    // colors
-  this.defineBlock( 7, 8 )
-  this.defineBlock( 8, 9 )
-  this.defineBlock( 9,10 )
-  this.defineBlock(10,11 )
-  
-  
+  for (var i=4; i<30; i++) {
+    this.defineBlock( i, i+1 )
+  }
   
   this.defineMaterial( 1, [1,1,1], "dirt" )
   this.defineMaterial( 2, [1,1,1], "grass" )
   this.defineMaterial( 3, [1,1,1], "grass_dirt" )
   this.defineMaterial( 4, [1,1,1], "cobblestone" )
-  this.defineMaterial( 5, [ 0.9, 0.9, 0.95 ], null )
-  this.defineMaterial( 6, [ 0.3, 0.9, 0.4 ], null )
-  this.defineMaterial( 7, [ 0.9, 0.5, 0.4 ], null )
-  this.defineMaterial( 8, [ 0.3, 0.4, 0.9 ], null )
-  this.defineMaterial( 9, [ 0.7, 0.9, 0.4 ], null )
-  this.defineMaterial(10, [ 0.3, 0.7, 0.9 ], null )
-  this.defineMaterial(11, [ 0.8, 0.2, 0.7 ], null )
-  
-  
+  for (i=5; i<30; i++) {
+    this.defineMaterial( i, [ Math.random(), Math.random(), Math.random() ], null )
+  }
+
   
   
   // ad-hoc raycasting/highlighting stuff
@@ -235,13 +233,6 @@ function Engine(opts) {
  *   Engine API
 */ 
 
-// TODO: this should really be made a listener
-Engine.prototype.onDomReady = function() {
-  // registers noa for tick/render/resize events
-  this.container.initEvents()
-  // sets up key events
-  this.inputs.initEvents(document)
-}
 
 
 // TODO: revisit this timing handling - e.g. option for fixed timesteps
@@ -269,27 +260,15 @@ Engine.prototype.render = function(dt) {
 }
 
 
-// ad-hoc - TODO: this should be an event listener
-Engine.prototype.onChunkAdded = function(chunk, id, i, j, k) {
-  // TODO: pass in material/colors/chunk metadata somehow
-  var aovals = [ 1, 0.8, 0.6 ]
-  var getMaterial = this.blockToMaterial.bind(this)
-  var meshDataArr = this.mesher.meshChunk( chunk, getMaterial, this.materialColors, aovals )
-  if (meshDataArr.length) { // empty if the chunk is empty
-    var cs = this.world.chunkSize
-    this.rendering.addMeshDataArray( meshDataArr, id, i*cs, j*cs, k*cs )
-  }
+
+/*
+ *   Utility APIs
+*/ 
+
+Engine.prototype.getPlayerPosition = function() {
+  return this.playerBody.aabb.base
 }
 
-// ad-hoc - TODO: this should be an event listener
-Engine.prototype.onChunkChanged = function(chunk, id, i, j, k) {
-  // TODO: pass in material/colors/chunk metadata somehow
-  var aovals = [ 1, 0.8, 0.6 ]
-  var getMaterial = this.blockToMaterial.bind(this)
-  var meshDataArr = this.mesher.meshChunk( chunk, getMaterial, this.materialColors, aovals )
-  var cs = this.world.chunkSize
-  this.rendering.updateMeshDataArr( meshDataArr, id, i*cs, j*cs, k*cs )
-}
 
 
 
@@ -306,7 +285,7 @@ function checkForPointerlock(noa) {
 
 
 
-},{"./lib/container":4,"./lib/controls":5,"./lib/inputs":6,"./lib/mesher":7,"./lib/physics":8,"./lib/rendering":9,"./lib/world":10,"aabb-3d":11,"gl-vec3":37,"ndarray":59,"voxel-raycast":135}],3:[function(require,module,exports){
+},{"./lib/container":4,"./lib/controls":5,"./lib/inputs":6,"./lib/mesher":7,"./lib/physics":8,"./lib/rendering":9,"./lib/world":10,"aabb-3d":11,"gl-vec3":37,"ndarray":60,"voxel-raycast":136}],3:[function(require,module,exports){
 var __extends = this.__extends || function (d, b) {
     for (var p in b) if (b.hasOwnProperty(p)) d[p] = b[p];
     function __() { this.constructor = d; }
@@ -28157,34 +28136,31 @@ module.exports=BABYLON;
 
 var extend = require('extend')
 var createGameShell = require('game-shell')
+var inherits = require('inherits')
+var EventEmitter = require('events').EventEmitter
+
 
 module.exports = function(noa, opts) {
   return new Container(noa, opts)
 }
 
-
+/*
+ *  Container module
+ *    Wraps game-shell module and manages HTML container, canvas, etc.
+ *    Emits: DOMready
+*/
 
 function Container(noa, opts) {
   opts = opts || {}
   this._noa = noa
   this._element = opts.domElement || createContainerDiv()
   this._shell = createShell( this._element, opts )
-  
   this.canvas = getOrCreateCanvas(this._element)
+  
+  this._shell.on('init', onShellInit.bind(null,this))
 }
 
-
-
-
-/*
- *   PUBLIC API 
-*/ 
-
-
-
-Container.prototype.appendTo = function(htmlElement) {
-  this._element.appendChild( htmlElement )
-}
+inherits(Container, EventEmitter)
 
 
 
@@ -28192,12 +28168,28 @@ Container.prototype.appendTo = function(htmlElement) {
  *   SHELL EVENTS
 */ 
 
-Container.prototype.initEvents = function() {
-  var e = this._noa
-  this._shell.on('tick', e.tick.bind(e) )
-  this._shell.on('render', e.render.bind(e) )
-  this._shell.on('resize', e.rendering.resize.bind(e.rendering) )
+function onShellInit(self) {
+  // create shell listeners that drive engine functions
+  var noa = self._noa
+  var shell = self._shell
+  shell.on('tick',   noa.tick.bind(noa) )
+  shell.on('render', noa.render.bind(noa) )
+  shell.on('resize', noa.rendering.resize.bind(noa.rendering) )
+  // let other components know DOM is ready
+  self.emit( 'DOMready' )
 }
+
+
+/*
+ *   PUBLIC API 
+*/ 
+
+Container.prototype.appendTo = function(htmlElement) {
+  this._element.appendChild( htmlElement )
+}
+
+
+
 
 
 /*
@@ -28257,7 +28249,7 @@ function getOrCreateCanvas(el) {
 
 
 
-},{"extend":13,"game-shell":25}],5:[function(require,module,exports){
+},{"events":143,"extend":13,"game-shell":25,"inherits":59}],5:[function(require,module,exports){
 'use strict';
 
 var createController = require('voxel-fps-controller')
@@ -28291,7 +28283,7 @@ function makeControls(noa, opts) {
 
 
 
-},{"extend":13,"voxel-fps-controller":61}],6:[function(require,module,exports){
+},{"extend":13,"voxel-fps-controller":62}],6:[function(require,module,exports){
 'use strict';
 
 var createInputs = require('game-inputs')
@@ -28661,7 +28653,7 @@ function pushAOColor( colors, baseCol, ao, aoVals ) {
 
 
 
-},{"extend":13,"ndarray":59}],8:[function(require,module,exports){
+},{"extend":13,"ndarray":60}],8:[function(require,module,exports){
 'use strict';
 
 var createPhysics = require('voxel-physics-engine')
@@ -28696,20 +28688,17 @@ function makePhysics(noa, opts) {
 
 
 
-},{"extend":13,"voxel-physics-engine":96}],9:[function(require,module,exports){
+},{"extend":13,"voxel-physics-engine":97}],9:[function(require,module,exports){
 'use strict';
 
 var extend = require('extend')
-
-// assume Babylon is in target app for now... TODO - encapsulate the dependency
 var BABYLON = require('./babylon.2.0-beta.debug-CJS')
-//var BABYLON = window.BABYLON
-if (!BABYLON) throw new Error('BABYLON.js engine not found!')
+// TODO: consider importing babylon in the HTML page, instead of browserifying it
+
 
 module.exports = function(noa, opts, canvas) {
   return new Rendering(noa, opts, canvas)
 }
-
 
 var vec3 = BABYLON.Vector3
 var col3 = BABYLON.Color3
@@ -28730,14 +28719,20 @@ function Rendering(noa, _opts, canvas) {
   }
   var opts = extend( {}, defaults, _opts )
   initScene(this, canvas, opts)
+  // sign up for chunk add/remove events
+  noa.world.on('chunkAdded',   onChunkAdded.bind(null, this) )
+  noa.world.on('chunkRemoved', onChunkRemoved.bind(null, this) )
+  noa.world.on('chunkChanged', onChunkChanged.bind(null, this) )
+
   // for development
   window.scene = this._scene
   // ad-hoc for now, will later be stored in registry?
   this._materials = []
 }
 
-
+// Constructor helper - set up the Babylon.js scene and basic components
 function initScene(self, canvas, opts) {
+  if (!BABYLON) throw new Error('BABYLON.js engine not found!')
   // init internal properties
   self._engine = new BABYLON.Engine(canvas, opts.antiAlias)
   self._scene =     new BABYLON.Scene( self._engine )
@@ -28756,12 +28751,10 @@ function initScene(self, canvas, opts) {
 
 
 
-
-
-
 /*
  *   PUBLIC API 
 */ 
+
 
 Rendering.prototype.render = function() {
   var cpos = this.noa.getCameraPosition()
@@ -28776,26 +28769,72 @@ Rendering.prototype.resize = function(e) {
   this._engine.resize()
 }
 
-
-Rendering.prototype.updateMeshDataArr = function(meshArr, id, x, y, z) {
-  var m = this._scene.getMeshByName('m_'+id)
-  if (m) m.dispose()
-  this.addMeshDataArray(meshArr, id, x, y, z)
+Rendering.prototype.highlightBlock = function(show,x,y,z) {
+  var m = getHighlightMesh(this)
+  if (show) {
+    m.position.x = x + 0.5
+    m.position.y = y + 0.5
+    m.position.z = z + 0.5
+  }
+  m.visibility = show
 }
 
-Rendering.prototype.addMeshDataArray = function(meshArr, id, x, y, z) {
-  //  return this.addMultiMesh(meshArr,x,y,z)
-  
+
+
+
+/*
+ *   CHUNK ADD/CHANGE/REMOVE HANDLING
+*/ 
+
+function onChunkAdded( self, chunk, id, x, y, z ) {
+  addMeshChunk( self, chunk, id, x, y, z )
+}
+
+function onChunkChanged( self, chunk, id, x, y, z ) {
+  removeMesh( self, id)
+  addMeshChunk( self, chunk, id, x, y, z )  
+}
+
+function onChunkRemoved( self, id ) {
+  removeMesh( self, id )
+}
+
+
+
+/*
+ *   INTERNALS
+*/ 
+
+
+function removeMesh(self, id) {
+  var m = self._scene.getMeshByName('m_'+id)
+  if (m) m.dispose();
+}
+
+function addMeshChunk(self, chunk, id, x, y, z) {
+  var noa = self.noa
+  // first pass chunk data to mesher
+  var aovals = [ 1, 0.8, 0.6 ]
+  // TODO: pass in material/colors/chunk metadata somehow
+  var matGetter = noa.blockToMaterial.bind(noa)
+  var meshDataArr = noa.mesher.meshChunk( chunk, matGetter, noa.materialColors, aovals )
+  // skip adding the mesh if chunk was empty
+  if (meshDataArr.length===0) { return }
+
+  // now create process the vertex/normal/etc. arrays into meshes
   // holder mesh - this is what we dispose to get rid of the whole mesh chunk
-  var chunkMesh = new BABYLON.Mesh( 'm_'+id, this._scene )
+  var chunkMesh = new BABYLON.Mesh( 'm_'+id, self._scene )
+  if (x) chunkMesh.position.x = x
+  if (y) chunkMesh.position.y = y
+  if (z) chunkMesh.position.z = z
   // meshArr is what comes from mesher - sparsely keyed
-  for (var i in meshArr) {
+  for (var i in meshDataArr) {
     // mdat is instance of Mesher#Submesh
-    var mdat = meshArr[i]
+    var mdat = meshDataArr[i]
     // get or create babylon material
-    var mat = getMaterial(this, mdat.id)
-    
-    var m = new BABYLON.Mesh( "sub", this._scene )
+    var mat = getMaterial(self, mdat.id)
+
+    var m = new BABYLON.Mesh( "sub", self._scene )
     m.material = mat
     m.parent = chunkMesh
 
@@ -28807,15 +28846,14 @@ Rendering.prototype.addMeshDataArray = function(meshArr, id, x, y, z) {
     vdat.uvs =       mdat.uvs
 
     vdat.applyToMesh( m )
-    if (x) m.position.x = x
-    if (y) m.position.y = y
-    if (z) m.position.z = z;
   }
 }
 
 
 
-// internal helper..
+
+
+// make or get a material from material id
 function getMaterial( rendering, id ) {
   var mat = rendering._materials[id]
   if (!mat) {
@@ -28836,17 +28874,7 @@ function getMaterial( rendering, id ) {
 
 
 
-Rendering.prototype.highlightBlock = function(show,x,y,z) {
-  var m = getHighlightMesh(this)
-  if (show) {
-    m.position.x = x + 0.5
-    m.position.y = y + 0.5
-    m.position.z = z + 0.5
-  }
-  m.visibility = show
-}
-
-// internal helper..
+// make or get a mesh for highlighting active voxel
 function getHighlightMesh(rendering) {
   var m = rendering._highlightMesh
   if (!m) {
@@ -28960,6 +28988,8 @@ function getHighlightMesh(rendering) {
 
 var extend = require('extend')
 var ndarray = require('ndarray')
+var inherits = require('inherits')
+var EventEmitter = require('events').EventEmitter
 
 
 module.exports = function(noa, opts) {
@@ -28971,7 +29001,7 @@ var defaultOptions = {
   generator: defaultGenerator,
   chunkSize: 16,
   chunkAddDistance: 2,
-  chunkHideDistance: 4 // NYI
+  chunkRemoveDistance: 3
 
 }
 
@@ -28984,14 +29014,15 @@ function World(noa, _opts) {
   this.chunkSize = opts.chunkSize
   this.generator = opts.generator
   this.chunkAddDistance = opts.chunkAddDistance
-  this.chunkHideDistance = opts.chunkHideDistance
-
-  // this is ad-hoc for now
-  this._neededChunks = []
+  this.chunkRemoveDistance = opts.chunkRemoveDistance
 
   // internals
+  this._chunksToAdd = []
+  this._chunksToRemove = []
   this._chunks = {}
 }
+
+inherits( World, EventEmitter )
 
 
 
@@ -29029,25 +29060,36 @@ World.prototype.setBlock = function (id,x,y,z) {
   y = (y<0) ? y-j*cs : y%cs
   z = (z<0) ? z-k*cs : z%cs
   chunk.set( x, y, z, id )
-  this.noa.onChunkChanged( chunk, getChunkID(i,j,k), i, j, k )
+  // alert world
+  var cs = this.chunkSize
+  this.emit( 'chunkChanged', chunk, getChunkID(i,j,k), cs*i, cs*j, cs*k )
 }
+
 
 
 World.prototype.tick = function() {
-  // TODO: make noa an emitter and send a movedToNewChunk(?) event
-  var loc = [0,0,0] // TODO: get from noa.playerEntity.position or similar
-  var chunkID = getChunkID( loc[0], loc[1], loc[2] )
-  if (chunkID != prevChunkID) {
-    checkForMissingChunks( this, loc[0], loc[1], loc[2] )
+  // check player position and needed/unneeded chunks
+  var pos = this.noa.getPlayerPosition()
+  var cs = this.chunkSize
+  var i = Math.floor(pos[0]/cs)
+  var j = Math.floor(pos[1]/cs)
+  var k = Math.floor(pos[2]/cs)
+  var chunkID = getChunkID( i,j,k )
+  if (chunkID != this._lastPlayerChunkID) {
+    updateChunkQueues( this, i, j, k )
   }
-  prevChunkID = chunkID
+  this._lastPlayerChunkID = chunkID
   
-  if (this._neededChunks.length) {
-    addNewChunk( this, this._neededChunks.shift() )
+  // remove a chunk if needed, else, add one if needed
+  if (this._chunksToRemove.length) {
+    var loc = this._chunksToRemove.shift()
+    removeChunk( this, loc[0], loc[1], loc[2] )
+  } else if (this._chunksToAdd.length) {
+    var index = findClosestChunk( i, j, k, this._chunksToAdd )
+    var loc = this._chunksToAdd.splice(index,1)[0]
+    addNewChunk( this, loc[0], loc[1], loc[2] )
   }
 }
-var prevChunkID = ''
-
 
 
 
@@ -29057,15 +29099,35 @@ var prevChunkID = ''
 */
 
 
-// add a new chunk to the world, based on string id
-function addNewChunk( world, id ) {
-  var loc = parseChunkID(id)
-  var chunk = createChunk( world, loc[0], loc[1], loc[2] )
-  world._chunks[id] = chunk
-  
-  // TODO: make world (or noa) an emitter and have this be an event
-  world.noa.onChunkAdded( chunk, id, loc[0], loc[1], loc[2] )
+// canonical string ID handling for the i,j,k-th chunk
+function getChunkID( i, j, k ) {
+  return [i, j, k].join('|')
 }
+function parseChunkID( id ) {
+  var arr = id.split('|')
+  return [ parseInt(arr[0]), parseInt(arr[1]), parseInt(arr[2]) ]
+}
+
+
+// add a new chunk to the world, based on string id
+function addNewChunk( world, i, j, k ) {
+  var id = getChunkID(i,j,k)
+  var chunk = createChunk( world, i, j, k )
+  world._chunks[id] = chunk
+  // alert the world
+  var cs = world.chunkSize
+  world.emit( 'chunkAdded', chunk, id, cs*i, cs*j, cs*k )
+//  world.noa.onChunkAdded( chunk, id, loc[0], loc[1], loc[2] )
+}
+
+function removeChunk( world, i, j, k ) {
+  var id = getChunkID(i,j,k)
+  // ndarrays have no dispose function, so nothing to destroy
+  delete world._chunks[id]
+  // alert the world
+  world.emit( 'chunkRemoved', id )
+}
+
 
 
 
@@ -29081,42 +29143,58 @@ function createChunk( world, i, j, k ) {
   return chunk
 }
 
-// canonical string ID handling for the i,j,k-th chunk
-function getChunkID( i, j, k ) {
-  return [i, j, k].join('|')
-}
-function parseChunkID( id ) {
-  var arr = id.split('|')
-  return [ parseInt(arr[0]), parseInt(arr[1]), parseInt(arr[2]) ]
-}
 
 
-
-// check for missing chunks around the current (ci,cj,ck) one
-function checkForMissingChunks( world, ci, cj, ck ) {
+// check for needed/unneeded chunks around (ci,cj,ck)
+function updateChunkQueues( world, ci, cj, ck ) {
   var chunks = world._chunks,
-      dist = world.chunkAddDistance,
-      id, arr = []
-  for (var i=ci-dist; i<=ci+dist; ++i) {
-    for (var j=cj-dist; j<=cj+dist; ++j) {
-      for (var k=ck-dist; k<=ck+dist; ++k) {
-        id = getChunkID(i,j,k)
+      add = world.chunkAddDistance,
+      rem = world.chunkRemoveDistance,
+      loc
+  // enqueue chunks needing to be added
+  for (var i=ci-add; i<=ci+add; ++i) {
+    for (var j=cj-add; j<=cj+add; ++j) {
+      for (var k=ck-add; k<=ck+add; ++k) {
+        var id = getChunkID(i,j,k)
         if (chunks[id]) continue
-        arr.push({
-          id: id,
-          dist: Math.abs(ci-i) + Math.abs(cj-j)*2 + Math.abs(ck-k)
-        });
+        enqueueChunk( [i,j,k], world._chunksToAdd )
       }
     }
   }
-  // sort the adds so that chunks fill in from the middle
-  arr.sort( function(a,b){ return a.dist>b.dist ? 1:-1 } )
-  for (i=0; i<arr.length; ++i) {
-    world._neededChunks.push( arr[i].id )
+  // enqueue chunks needing to be removed
+  for (var s in world._chunks) {
+    loc = parseChunkID(s)
+    if ((Math.abs(loc[0]-ci) > rem) ||
+        (Math.abs(loc[1]-cj) > rem) ||
+        (Math.abs(loc[2]-ck) > rem)) {
+      enqueueChunk( loc, world._chunksToRemove )
+    }
   }
 }
 
 
+// enqueue an [i,j,k] chunk location into an array of them
+function enqueueChunk( arr, queue ) {
+  for (var i=0; i<queue.length; ++i) {
+    var qarr = queue[i]
+    if ( arr[0]==qarr[0] && arr[1]==qarr[1] && arr[2]==qarr[2] ) return
+  }
+  queue.push(arr)
+}
+
+// find index of nearest chunk in queue of [i,j,k] arrays
+function findClosestChunk( ci, cj, ck, queue ) {
+  var index = -1, dist = 10000
+  for (var i=0; i<queue.length; ++i) {
+    var qarr = queue[i]
+    var d = Math.abs(qarr[0]-ci) + Math.abs(qarr[1]-cj) + Math.abs(qarr[2]-ck)
+    if (d<dist) {
+      dist = d
+      index = i
+    }
+  }
+  return index
+}
 
 
 
@@ -29126,7 +29204,6 @@ function checkForMissingChunks( world, ci, cj, ck ) {
 // sample generator function
 //   takes an empty chunk, and an x/y/z to start from
 //   writes data into the chunk (ndarray)
-// TODO: which typedarray is best?
 
 function defaultGenerator( chunk, x, y, z ) {
   var dx = chunk.shape[0]
@@ -29148,10 +29225,7 @@ function defaultGenerator( chunk, x, y, z ) {
 
 
 
-
-
-
-},{"extend":13,"ndarray":59}],11:[function(require,module,exports){
+},{"events":143,"extend":13,"inherits":59,"ndarray":60}],11:[function(require,module,exports){
 module.exports = AABB
 
 var vec3 = require('gl-matrix').vec3
@@ -33429,7 +33503,7 @@ function XOR(a,b) {
 
 
 
-},{"events":142,"vkey":15}],15:[function(require,module,exports){
+},{"events":143,"vkey":15}],15:[function(require,module,exports){
 var ua = typeof window !== 'undefined' ? window.navigator.userAgent : ''
   , isOSX = /OS X/.test(ua)
   , isOpera = /Opera/.test(ua)
@@ -34590,7 +34664,7 @@ function createShell(options) {
 
 module.exports = createShell
 
-},{"./lib/hrtime-polyfill.js":16,"./lib/mousewheel-polyfill.js":17,"./lib/raf-polyfill.js":18,"binary-search-bounds":19,"domready":20,"events":142,"invert-hash":21,"iota-array":22,"uniq":23,"util":146,"vkey":24}],26:[function(require,module,exports){
+},{"./lib/hrtime-polyfill.js":16,"./lib/mousewheel-polyfill.js":17,"./lib/raf-polyfill.js":18,"binary-search-bounds":19,"domready":20,"events":143,"invert-hash":21,"iota-array":22,"uniq":23,"util":147,"vkey":24}],26:[function(require,module,exports){
 module.exports = add;
 
 /**
@@ -35272,6 +35346,31 @@ function transformQuat(out, a, q) {
     return out
 }
 },{}],59:[function(require,module,exports){
+if (typeof Object.create === 'function') {
+  // implementation from standard node.js 'util' module
+  module.exports = function inherits(ctor, superCtor) {
+    ctor.super_ = superCtor
+    ctor.prototype = Object.create(superCtor.prototype, {
+      constructor: {
+        value: ctor,
+        enumerable: false,
+        writable: true,
+        configurable: true
+      }
+    });
+  };
+} else {
+  // old school shim for old browsers
+  module.exports = function inherits(ctor, superCtor) {
+    ctor.super_ = superCtor
+    var TempCtor = function () {}
+    TempCtor.prototype = superCtor.prototype
+    ctor.prototype = new TempCtor()
+    ctor.prototype.constructor = ctor
+  }
+}
+
+},{}],60:[function(require,module,exports){
 (function (Buffer){
 var iota = require("iota-array")
 
@@ -35619,9 +35718,9 @@ function wrappedNDArrayCtor(data, shape, stride, offset) {
 
 module.exports = wrappedNDArrayCtor
 }).call(this,require("buffer").Buffer)
-},{"buffer":138,"iota-array":60}],60:[function(require,module,exports){
+},{"buffer":139,"iota-array":61}],61:[function(require,module,exports){
 module.exports=require(22)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/game-shell/node_modules/iota-array/iota.js":22}],61:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/game-shell/node_modules/iota-array/iota.js":22}],62:[function(require,module,exports){
 'use strict';
 
 var vec3 = require('gl-vec3')
@@ -35634,7 +35733,8 @@ module.exports = function(opts, control_state) {
 
 
 var twopi =  Math.PI * 2,
-    halfpi = Math.PI / 2
+    halfpi = Math.PI / 2,
+    rotXcutoff = halfpi-.0001 // engines may not like xRot == pi/2
 
 var defaults = {
   maxSpeed: 7
@@ -35734,8 +35834,8 @@ proto.tick = function(dt) {
   dy = this.rotationScale * state.dx
   // normalize/clamp/update
   var camrot = this._camAccess.getRotationXY() // [x,y]
-  rotX = clamp( camrot[0] + dx, halfpi )
-  rotY = clamp( camrot[1] + dy) % twopi
+  rotX = clamp( camrot[0] + dx, rotXcutoff )
+  rotY = (camrot[1] + dy) % twopi
   this._camAccess.setRotationXY( rotX, rotY )
 
   // jumping
@@ -35847,75 +35947,75 @@ function clamp(value, to) {
   return isFinite(to) ? Math.max(Math.min(value, to), -to) : value
 }
 
-},{"extend":62,"gl-vec3":74}],62:[function(require,module,exports){
+},{"extend":63,"gl-vec3":75}],63:[function(require,module,exports){
 module.exports=require(13)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/extend/index.js":13}],63:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/extend/index.js":13}],64:[function(require,module,exports){
 module.exports=require(26)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/add.js":26}],64:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/add.js":26}],65:[function(require,module,exports){
 module.exports=require(27)
-},{"./dot":71,"./fromValues":73,"./normalize":82,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/angle.js":27}],65:[function(require,module,exports){
+},{"./dot":72,"./fromValues":74,"./normalize":83,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/angle.js":27}],66:[function(require,module,exports){
 module.exports=require(28)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/clone.js":28}],66:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/clone.js":28}],67:[function(require,module,exports){
 module.exports=require(29)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/copy.js":29}],67:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/copy.js":29}],68:[function(require,module,exports){
 module.exports=require(30)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/create.js":30}],68:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/create.js":30}],69:[function(require,module,exports){
 module.exports=require(31)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/cross.js":31}],69:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/cross.js":31}],70:[function(require,module,exports){
 module.exports=require(32)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/distance.js":32}],70:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/distance.js":32}],71:[function(require,module,exports){
 module.exports=require(33)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/divide.js":33}],71:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/divide.js":33}],72:[function(require,module,exports){
 module.exports=require(34)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/dot.js":34}],72:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/dot.js":34}],73:[function(require,module,exports){
 module.exports=require(35)
-},{"./create":67,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/forEach.js":35}],73:[function(require,module,exports){
+},{"./create":68,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/forEach.js":35}],74:[function(require,module,exports){
 module.exports=require(36)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/fromValues.js":36}],74:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/fromValues.js":36}],75:[function(require,module,exports){
 module.exports=require(37)
-},{"./add":63,"./angle":64,"./clone":65,"./copy":66,"./create":67,"./cross":68,"./distance":69,"./divide":70,"./dot":71,"./forEach":72,"./fromValues":73,"./inverse":75,"./length":76,"./lerp":77,"./max":78,"./min":79,"./multiply":80,"./negate":81,"./normalize":82,"./random":83,"./rotateX":84,"./rotateY":85,"./rotateZ":86,"./scale":87,"./scaleAndAdd":88,"./set":89,"./squaredDistance":90,"./squaredLength":91,"./subtract":92,"./transformMat3":93,"./transformMat4":94,"./transformQuat":95,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/index.js":37}],75:[function(require,module,exports){
+},{"./add":64,"./angle":65,"./clone":66,"./copy":67,"./create":68,"./cross":69,"./distance":70,"./divide":71,"./dot":72,"./forEach":73,"./fromValues":74,"./inverse":76,"./length":77,"./lerp":78,"./max":79,"./min":80,"./multiply":81,"./negate":82,"./normalize":83,"./random":84,"./rotateX":85,"./rotateY":86,"./rotateZ":87,"./scale":88,"./scaleAndAdd":89,"./set":90,"./squaredDistance":91,"./squaredLength":92,"./subtract":93,"./transformMat3":94,"./transformMat4":95,"./transformQuat":96,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/index.js":37}],76:[function(require,module,exports){
 module.exports=require(38)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/inverse.js":38}],76:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/inverse.js":38}],77:[function(require,module,exports){
 module.exports=require(39)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/length.js":39}],77:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/length.js":39}],78:[function(require,module,exports){
 module.exports=require(40)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/lerp.js":40}],78:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/lerp.js":40}],79:[function(require,module,exports){
 module.exports=require(41)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/max.js":41}],79:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/max.js":41}],80:[function(require,module,exports){
 module.exports=require(42)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/min.js":42}],80:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/min.js":42}],81:[function(require,module,exports){
 module.exports=require(43)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/multiply.js":43}],81:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/multiply.js":43}],82:[function(require,module,exports){
 module.exports=require(44)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/negate.js":44}],82:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/negate.js":44}],83:[function(require,module,exports){
 module.exports=require(45)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/normalize.js":45}],83:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/normalize.js":45}],84:[function(require,module,exports){
 module.exports=require(46)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/random.js":46}],84:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/random.js":46}],85:[function(require,module,exports){
 module.exports=require(47)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/rotateX.js":47}],85:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/rotateX.js":47}],86:[function(require,module,exports){
 module.exports=require(48)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/rotateY.js":48}],86:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/rotateY.js":48}],87:[function(require,module,exports){
 module.exports=require(49)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/rotateZ.js":49}],87:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/rotateZ.js":49}],88:[function(require,module,exports){
 module.exports=require(50)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/scale.js":50}],88:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/scale.js":50}],89:[function(require,module,exports){
 module.exports=require(51)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/scaleAndAdd.js":51}],89:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/scaleAndAdd.js":51}],90:[function(require,module,exports){
 module.exports=require(52)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/set.js":52}],90:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/set.js":52}],91:[function(require,module,exports){
 module.exports=require(53)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/squaredDistance.js":53}],91:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/squaredDistance.js":53}],92:[function(require,module,exports){
 module.exports=require(54)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/squaredLength.js":54}],92:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/squaredLength.js":54}],93:[function(require,module,exports){
 module.exports=require(55)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/subtract.js":55}],93:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/subtract.js":55}],94:[function(require,module,exports){
 module.exports=require(56)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/transformMat3.js":56}],94:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/transformMat3.js":56}],95:[function(require,module,exports){
 module.exports=require(57)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/transformMat4.js":57}],95:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/transformMat4.js":57}],96:[function(require,module,exports){
 module.exports=require(58)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/transformQuat.js":58}],96:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/transformQuat.js":58}],97:[function(require,module,exports){
 'use strict';
 
 var collisions = require('collide-3d-tilemap')
@@ -36064,11 +36164,11 @@ Physics.prototype.tick = function(dt) {
 
 
 
-},{"./rigidBody":134,"aabb-3d":97,"collide-3d-tilemap":99,"extend":100,"gl-vec3":112}],97:[function(require,module,exports){
+},{"./rigidBody":135,"aabb-3d":98,"collide-3d-tilemap":100,"extend":101,"gl-vec3":113}],98:[function(require,module,exports){
 module.exports=require(11)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/aabb-3d/index.js":11,"gl-matrix":98}],98:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/aabb-3d/index.js":11,"gl-matrix":99}],99:[function(require,module,exports){
 module.exports=require(12)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/aabb-3d/node_modules/gl-matrix/dist/gl-matrix.js":12}],99:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/aabb-3d/node_modules/gl-matrix/dist/gl-matrix.js":12}],100:[function(require,module,exports){
 module.exports = function(field, tilesize, dimensions, offset) {
   dimensions = dimensions || [ 
     Math.sqrt(field.length) >> 0
@@ -36156,75 +36256,75 @@ module.exports = function(field, tilesize, dimensions, offset) {
   }  
 }
 
-},{}],100:[function(require,module,exports){
+},{}],101:[function(require,module,exports){
 module.exports=require(13)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/extend/index.js":13}],101:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/extend/index.js":13}],102:[function(require,module,exports){
 module.exports=require(26)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/add.js":26}],102:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/add.js":26}],103:[function(require,module,exports){
 module.exports=require(27)
-},{"./dot":109,"./fromValues":111,"./normalize":120,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/angle.js":27}],103:[function(require,module,exports){
+},{"./dot":110,"./fromValues":112,"./normalize":121,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/angle.js":27}],104:[function(require,module,exports){
 module.exports=require(28)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/clone.js":28}],104:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/clone.js":28}],105:[function(require,module,exports){
 module.exports=require(29)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/copy.js":29}],105:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/copy.js":29}],106:[function(require,module,exports){
 module.exports=require(30)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/create.js":30}],106:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/create.js":30}],107:[function(require,module,exports){
 module.exports=require(31)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/cross.js":31}],107:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/cross.js":31}],108:[function(require,module,exports){
 module.exports=require(32)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/distance.js":32}],108:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/distance.js":32}],109:[function(require,module,exports){
 module.exports=require(33)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/divide.js":33}],109:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/divide.js":33}],110:[function(require,module,exports){
 module.exports=require(34)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/dot.js":34}],110:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/dot.js":34}],111:[function(require,module,exports){
 module.exports=require(35)
-},{"./create":105,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/forEach.js":35}],111:[function(require,module,exports){
+},{"./create":106,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/forEach.js":35}],112:[function(require,module,exports){
 module.exports=require(36)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/fromValues.js":36}],112:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/fromValues.js":36}],113:[function(require,module,exports){
 module.exports=require(37)
-},{"./add":101,"./angle":102,"./clone":103,"./copy":104,"./create":105,"./cross":106,"./distance":107,"./divide":108,"./dot":109,"./forEach":110,"./fromValues":111,"./inverse":113,"./length":114,"./lerp":115,"./max":116,"./min":117,"./multiply":118,"./negate":119,"./normalize":120,"./random":121,"./rotateX":122,"./rotateY":123,"./rotateZ":124,"./scale":125,"./scaleAndAdd":126,"./set":127,"./squaredDistance":128,"./squaredLength":129,"./subtract":130,"./transformMat3":131,"./transformMat4":132,"./transformQuat":133,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/index.js":37}],113:[function(require,module,exports){
+},{"./add":102,"./angle":103,"./clone":104,"./copy":105,"./create":106,"./cross":107,"./distance":108,"./divide":109,"./dot":110,"./forEach":111,"./fromValues":112,"./inverse":114,"./length":115,"./lerp":116,"./max":117,"./min":118,"./multiply":119,"./negate":120,"./normalize":121,"./random":122,"./rotateX":123,"./rotateY":124,"./rotateZ":125,"./scale":126,"./scaleAndAdd":127,"./set":128,"./squaredDistance":129,"./squaredLength":130,"./subtract":131,"./transformMat3":132,"./transformMat4":133,"./transformQuat":134,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/index.js":37}],114:[function(require,module,exports){
 module.exports=require(38)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/inverse.js":38}],114:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/inverse.js":38}],115:[function(require,module,exports){
 module.exports=require(39)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/length.js":39}],115:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/length.js":39}],116:[function(require,module,exports){
 module.exports=require(40)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/lerp.js":40}],116:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/lerp.js":40}],117:[function(require,module,exports){
 module.exports=require(41)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/max.js":41}],117:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/max.js":41}],118:[function(require,module,exports){
 module.exports=require(42)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/min.js":42}],118:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/min.js":42}],119:[function(require,module,exports){
 module.exports=require(43)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/multiply.js":43}],119:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/multiply.js":43}],120:[function(require,module,exports){
 module.exports=require(44)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/negate.js":44}],120:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/negate.js":44}],121:[function(require,module,exports){
 module.exports=require(45)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/normalize.js":45}],121:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/normalize.js":45}],122:[function(require,module,exports){
 module.exports=require(46)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/random.js":46}],122:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/random.js":46}],123:[function(require,module,exports){
 module.exports=require(47)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/rotateX.js":47}],123:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/rotateX.js":47}],124:[function(require,module,exports){
 module.exports=require(48)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/rotateY.js":48}],124:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/rotateY.js":48}],125:[function(require,module,exports){
 module.exports=require(49)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/rotateZ.js":49}],125:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/rotateZ.js":49}],126:[function(require,module,exports){
 module.exports=require(50)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/scale.js":50}],126:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/scale.js":50}],127:[function(require,module,exports){
 module.exports=require(51)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/scaleAndAdd.js":51}],127:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/scaleAndAdd.js":51}],128:[function(require,module,exports){
 module.exports=require(52)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/set.js":52}],128:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/set.js":52}],129:[function(require,module,exports){
 module.exports=require(53)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/squaredDistance.js":53}],129:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/squaredDistance.js":53}],130:[function(require,module,exports){
 module.exports=require(54)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/squaredLength.js":54}],130:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/squaredLength.js":54}],131:[function(require,module,exports){
 module.exports=require(55)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/subtract.js":55}],131:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/subtract.js":55}],132:[function(require,module,exports){
 module.exports=require(56)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/transformMat3.js":56}],132:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/transformMat3.js":56}],133:[function(require,module,exports){
 module.exports=require(57)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/transformMat4.js":57}],133:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/transformMat4.js":57}],134:[function(require,module,exports){
 module.exports=require(58)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/transformQuat.js":58}],134:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/gl-vec3/transformQuat.js":58}],135:[function(require,module,exports){
 
 var aabb = require('aabb-3d')
 ,   vec3 = require('gl-vec3')
@@ -36279,7 +36379,7 @@ RigidBody.prototype.atRestY = function() { return this.resting[1] }
 RigidBody.prototype.atRestZ = function() { return this.resting[2] }
 
 
-},{"aabb-3d":97,"gl-vec3":112}],135:[function(require,module,exports){
+},{"aabb-3d":98,"gl-vec3":113}],136:[function(require,module,exports){
 "use strict"
 
 function traceRay_impl(
@@ -36501,7 +36601,7 @@ function traceRay(voxels, origin, direction, max_d, hit_pos, hit_norm, EPSILON) 
 }
 
 module.exports = traceRay
-},{}],136:[function(require,module,exports){
+},{}],137:[function(require,module,exports){
 /*
  * A fast javascript implementation of simplex noise by Jonas Wagner
  *
@@ -36909,7 +37009,7 @@ if (typeof module !== 'undefined') {
 
 })();
 
-},{}],137:[function(require,module,exports){
+},{}],138:[function(require,module,exports){
 'use strict';
 
 var SimplexNoise = require('simplex-noise')
@@ -36955,7 +37055,7 @@ function generate( chunk, x, y, z ) {
   }
 }
 
-},{"simplex-noise":136}],138:[function(require,module,exports){
+},{"simplex-noise":137}],139:[function(require,module,exports){
 /*!
  * The buffer module from node.js, for the browser.
  *
@@ -38008,7 +38108,7 @@ function decodeUtf8Char (str) {
   }
 }
 
-},{"base64-js":139,"ieee754":140,"is-array":141}],139:[function(require,module,exports){
+},{"base64-js":140,"ieee754":141,"is-array":142}],140:[function(require,module,exports){
 var lookup = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
 ;(function (exports) {
@@ -38130,7 +38230,7 @@ var lookup = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 	exports.fromByteArray = uint8ToBase64
 }(typeof exports === 'undefined' ? (this.base64js = {}) : exports))
 
-},{}],140:[function(require,module,exports){
+},{}],141:[function(require,module,exports){
 exports.read = function(buffer, offset, isLE, mLen, nBytes) {
   var e, m,
       eLen = nBytes * 8 - mLen - 1,
@@ -38216,7 +38316,7 @@ exports.write = function(buffer, value, offset, isLE, mLen, nBytes) {
   buffer[offset + i - d] |= s * 128;
 };
 
-},{}],141:[function(require,module,exports){
+},{}],142:[function(require,module,exports){
 
 /**
  * isArray
@@ -38251,7 +38351,7 @@ module.exports = isArray || function (val) {
   return !! val && '[object Array]' == str.call(val);
 };
 
-},{}],142:[function(require,module,exports){
+},{}],143:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -38554,32 +38654,9 @@ function isUndefined(arg) {
   return arg === void 0;
 }
 
-},{}],143:[function(require,module,exports){
-if (typeof Object.create === 'function') {
-  // implementation from standard node.js 'util' module
-  module.exports = function inherits(ctor, superCtor) {
-    ctor.super_ = superCtor
-    ctor.prototype = Object.create(superCtor.prototype, {
-      constructor: {
-        value: ctor,
-        enumerable: false,
-        writable: true,
-        configurable: true
-      }
-    });
-  };
-} else {
-  // old school shim for old browsers
-  module.exports = function inherits(ctor, superCtor) {
-    ctor.super_ = superCtor
-    var TempCtor = function () {}
-    TempCtor.prototype = superCtor.prototype
-    ctor.prototype = new TempCtor()
-    ctor.prototype.constructor = ctor
-  }
-}
-
 },{}],144:[function(require,module,exports){
+module.exports=require(59)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/inherits/inherits_browser.js":59}],145:[function(require,module,exports){
 // shim for using process in browser
 
 var process = module.exports = {};
@@ -38667,14 +38744,14 @@ process.chdir = function (dir) {
     throw new Error('process.chdir is not supported');
 };
 
-},{}],145:[function(require,module,exports){
+},{}],146:[function(require,module,exports){
 module.exports = function isBuffer(arg) {
   return arg && typeof arg === 'object'
     && typeof arg.copy === 'function'
     && typeof arg.fill === 'function'
     && typeof arg.readUInt8 === 'function';
 }
-},{}],146:[function(require,module,exports){
+},{}],147:[function(require,module,exports){
 (function (process,global){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -39264,4 +39341,4 @@ function hasOwnProperty(obj, prop) {
 }
 
 }).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./support/isBuffer":145,"_process":144,"inherits":143}]},{},[1]);
+},{"./support/isBuffer":146,"_process":145,"inherits":144}]},{},[1]);
