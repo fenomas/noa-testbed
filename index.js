@@ -17,7 +17,7 @@ var opts = {
   // movement
   maxSpeed: 10,
   moveForce: 30,
-  standingFriction: 35,
+  standingFriction: 50,
   airMoveMult: 0.5,
   jumpImpulse: 10,
   jumpForce: 12,
