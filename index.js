@@ -1,4 +1,4 @@
-
+var vec3 = require('gl-vec3')
 var noa = require('noa')
 
 var opts = {
@@ -50,10 +50,10 @@ game.inputs.down.on('alt-fire', function() {
 
 var reg = game.registry
 // materials
-reg.defineMaterial( 1, [1,1,1], "dirt.png" )
-reg.defineMaterial( 2, [1,1,1], "grass.png" )
-reg.defineMaterial( 3, [1,1,1], "grass_dirt.png" )
-reg.defineMaterial( 4, [1,1,1], "cobblestone.png" )
+reg.defineMaterial( 1, [1,1,1], 'dirt.png' )
+reg.defineMaterial( 2, [1,1,1], 'grass.png' )
+reg.defineMaterial( 3, [1,1,1], 'grass_dirt.png' )
+reg.defineMaterial( 4, [1,1,1], 'cobblestone.png' )
 for (i=5; i<30; i++) {
   reg.defineMaterial( i, [ Math.random(), Math.random(), Math.random() ], null )
 }
@@ -66,6 +66,18 @@ for (var i=4; i<30; i++) {          // random colors
 }
 
 
+/*
+ *    create entities on keypresses
+*/
 
-
+game.inputs.bind('fireball', '1')
+game.inputs.down.on('fireball', function() {
+  var mesh = BABYLON.Mesh.CreateBox("box", 1, game.rendering.getScene())
+  var start = game.getCameraPosition()
+  var e = game.entities.add( start, 1, 1, mesh, [.5,.5,.5], null, false, true )
+  var vec = game.getCameraVector()
+  vec3.normalize(vec, vec)
+  vec3.scale(vec, vec, 25)
+  e.body.applyImpulse(vec)
+})
 

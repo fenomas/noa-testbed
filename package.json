@@ -16,6 +16,7 @@
   ],
   "license": "MIT",
   "dependencies": {
+    "gl-vec3": "^1.0.3",
     "noa": "andyhall/noa#d267ab62a3c6a0651561efe763bd6e0b36059653",
     "painterly-textures": "0.0.3"
   },
