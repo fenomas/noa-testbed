@@ -2,30 +2,51 @@
 var noa = require('noa')
 
 var opts = {
+  // inputs
   pointerLock: true,
   inverseY: true,
+  // world data
   chunkSize: 32,
-  texturePath: 'painterly/',
   generator: require('./worldgen'), // pass in a more interesting generator function
+  texturePath: 'painterly/',
   chunkAddDistance: 3,
   chunkRemoveDistance: 4,
-  // movement
-  maxSpeed: 10,
-  moveForce: 30,
-  standingFriction: 50,
-  airMoveMult: 0.5,
-  jumpImpulse: 10,
-  jumpForce: 12,
-  jumpTime: 400, // ms
-  airJumps: 1,
-  rotationScale: 0.0025
 }
+
 
 // create engine
 var game = noa( opts )
 
 
-// define block types and textures. TODO: fit these into options object?
+/*
+ *      create actions for mouse left/mid/right clicks
+*/
+
+// on left mouse, set targeted block to be air
+game.inputs.down.on('fire', function() {
+  var loc = game.getTargetBlock()
+  if (loc) game.setBlock(0, loc);
+})
+
+// on middle mouse, remember type of targeted block
+var placeBlockID = 2
+game.inputs.down.on('mid-fire', function() {
+  var loc = game.getTargetBlock()
+  if (loc) placeBlockID = game.getBlock(loc);
+})
+
+// on right mouse, place remembered block adjacent to target
+game.inputs.down.on('alt-fire', function() {
+  var loc = game.getTargetBlockAdjacent()
+  if (loc) game.setBlock(placeBlockID, loc);
+})
+
+
+
+/*
+ *      define block types and register materials
+ *      TODO: fit these into the options object?
+*/
 
 var reg = game.registry
 // materials
