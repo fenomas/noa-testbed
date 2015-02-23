@@ -95,15 +95,17 @@ game.inputs.down.on('spell-1', function() {
   vec3.scale(vec, vec, 15)
   e.body.applyImpulse(vec)
 })
+
 // onCollide function for spell entity's physics body
 function onSpellCollide(impulse) {
   // blow up!
+  var radius = 3.5
   var loc = this.getPosition().map(Math.floor)
-  var rad = 4
+  var rad = Math.ceil(radius)
   for (var i=-rad; i<=rad; ++i) {
     for (var j=-rad; j<=rad; ++j) {
       for (var k=-rad; k<=rad; ++k) {
-        if (i*i + j*j + k*k <= rad*rad) {
+        if (i*i + j*j + k*k <= radius*radius) {
           console.log( 0, i+loc[0], j+loc[1], k+loc[2] )
           game.setBlock( 0, i+loc[0], j+loc[1], k+loc[2] )
         }
