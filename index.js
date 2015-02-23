@@ -71,23 +71,21 @@ game.inputs.down.on('alt-fire', function() {
 */
 
 
-game.inputs.bind('spell-1', '1')
+game.inputs.bind('earthbomb', '1')
 var spell1mat
-game.inputs.down.on('spell-1', function() {
+game.inputs.down.on('earthbomb', function() {
   var s = .5 //size
   var scene = game.rendering.getScene()
-  var mesh = BABYLON.Mesh.CreateBox("box", s, scene)
+  var mesh = BABYLON.Mesh.CreateSphere('s1', 2, s, scene)
   if (!spell1mat) {
     spell1mat = new BABYLON.StandardMaterial('mat',scene)
     spell1mat.diffuseColor = new BABYLON.Color3( 1, .5, 0 )
   }
   mesh.material = spell1mat
   var pos = game.getCameraPosition()
-  // usage: entities.add( pos, w, h, mesh, meshOffset, tick, blockTerrain, doPhysics )
-  var e = game.entities.add( pos, s, s, mesh, [s/2,s/2,s/2], null, false, true )
+  // usage: entities.add( pos, w, h, mesh, meshOffset, data, tick, blockTerrain, doPhysics )
+  var e = game.entities.add( pos, s, s, mesh, [s/2,s/2,s/2], null, null, false, true )
   // modify physics body of entity thus
-  e.body.friction = 30
-  e.body.restitution = .2
   e.body.onCollide = onSpellCollide.bind(e)
   // give it thwack
   var vec = game.getCameraVector()
@@ -99,18 +97,59 @@ game.inputs.down.on('spell-1', function() {
 // onCollide function for spell entity's physics body
 function onSpellCollide(impulse) {
   // blow up!
-  var radius = 3.5
-  var loc = this.getPosition().map(Math.floor)
+  addBlocksInSphere(placeBlockID, this.getPosition(), 2.25)
+  game.entities.remove(this)
+}
+
+
+function addBlocksInSphere(id, pos, radius) {
+  var loc = pos.map(Math.floor)
   var rad = Math.ceil(radius)
   for (var i=-rad; i<=rad; ++i) {
     for (var j=-rad; j<=rad; ++j) {
       for (var k=-rad; k<=rad; ++k) {
         if (i*i + j*j + k*k <= radius*radius) {
-          console.log( 0, i+loc[0], j+loc[1], k+loc[2] )
-          game.setBlock( 0, i+loc[0], j+loc[1], k+loc[2] )
+          game.addBlock( id, i+loc[0], j+loc[1], k+loc[2] )
         }
       }
     }
   }
-  game.entities.remove(this)
+}
+
+game.inputs.bind('timebomb', '2')
+var spell2mata, spell2matb
+game.inputs.down.on('timebomb', function() {
+  var s = .5 //size
+  var scene = game.rendering.getScene()
+  var mesh = BABYLON.Mesh.CreateSphere('s2', 2, s, scene)
+  if (!spell2mata) {
+    spell2mata = new BABYLON.StandardMaterial('mat',scene)
+    spell2mata.diffuseColor = new BABYLON.Color3( .1, .1, .1 )
+    spell2matb = spell2mata.clone()
+    spell2matb.diffuseColor = new BABYLON.Color3( .9, .1, .1 )
+  }
+  mesh.material = spell2mata
+  var pos = game.getCameraPosition()
+  var dat = { counter: 3000 } // ms
+  var e = game.entities.add( pos, s, s, mesh, [s/2,s/2,s/2], dat, spell2Tick, false, true )
+  // give it some bounce and friction
+  e.body.friction = 8
+  e.body.restitution = .3
+  e.body.gravityMultiplier = 1.5
+  // give it thwack
+  var vec = game.getCameraVector()
+  vec3.normalize(vec, vec)
+  vec3.scale(vec, vec, 10)
+  e.body.applyImpulse(vec)
+})
+// "tick" function - literally, har har!
+function spell2Tick(dt) {
+  this.data.counter -= dt
+  var ct = this.data.counter
+  var blinker = (ct/250>>0) % 2
+  this.mesh.material = [spell2mata,spell2matb][blinker]
+  if (ct < 0) {
+    addBlocksInSphere( 0, this.getPosition(), 3.5)
+    game.entities.remove(this)
+  }
 }
