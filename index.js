@@ -19,7 +19,30 @@ var game = noa( opts )
 
 
 /*
- *      create actions for mouse left/mid/right clicks
+ *      define block types and register materials
+ *      TODO: fit these into the options object?
+*/
+
+var reg = game.registry
+// materials
+reg.defineMaterial( 1, [1,1,1], 'dirt.png' )
+reg.defineMaterial( 2, [1,1,1], 'grass.png' )
+reg.defineMaterial( 3, [1,1,1], 'grass_dirt.png' )
+reg.defineMaterial( 4, [1,1,1], 'cobblestone.png' )
+for (i=5; i<30; i++) {
+  reg.defineMaterial( i, [ Math.random(), Math.random(), Math.random() ], null )
+}
+// block types
+reg.defineBlock( 1, 1 )             // dirt
+reg.defineBlock( 2, [3,3,2,1,3,3] ) // grass
+reg.defineBlock( 3, 4 )             // stone
+for (var i=4; i<30; i++) {          // random colors
+  reg.defineBlock( i, i+1 )
+}
+
+
+/*
+ *      Example actions to get/set blocks on L/M/R mouse click
 */
 
 // on left mouse, set targeted block to be air
@@ -44,40 +67,48 @@ game.inputs.down.on('alt-fire', function() {
 
 
 /*
- *      define block types and register materials
- *      TODO: fit these into the options object?
+ *    example "spells" that create entities on keypress
 */
 
-var reg = game.registry
-// materials
-reg.defineMaterial( 1, [1,1,1], 'dirt.png' )
-reg.defineMaterial( 2, [1,1,1], 'grass.png' )
-reg.defineMaterial( 3, [1,1,1], 'grass_dirt.png' )
-reg.defineMaterial( 4, [1,1,1], 'cobblestone.png' )
-for (i=5; i<30; i++) {
-  reg.defineMaterial( i, [ Math.random(), Math.random(), Math.random() ], null )
-}
-// block types
-reg.defineBlock( 1, 1 )             // dirt
-reg.defineBlock( 2, [3,3,2,1,3,3] ) // grass
-reg.defineBlock( 3, 4 )             // stone
-for (var i=4; i<30; i++) {          // random colors
-  reg.defineBlock( i, i+1 )
-}
 
-
-/*
- *    create entities on keypresses
-*/
-
-game.inputs.bind('fireball', '1')
-game.inputs.down.on('fireball', function() {
-  var mesh = BABYLON.Mesh.CreateBox("box", 1, game.rendering.getScene())
-  var start = game.getCameraPosition()
-  var e = game.entities.add( start, 1, 1, mesh, [.5,.5,.5], null, false, true )
+game.inputs.bind('spell-1', '1')
+var spell1mat
+game.inputs.down.on('spell-1', function() {
+  var s = .5 //size
+  var scene = game.rendering.getScene()
+  var mesh = BABYLON.Mesh.CreateBox("box", s, scene)
+  if (!spell1mat) {
+    spell1mat = new BABYLON.StandardMaterial('mat',scene)
+    spell1mat.diffuseColor = new BABYLON.Color3( 1, .5, 0 )
+  }
+  mesh.material = spell1mat
+  var pos = game.getCameraPosition()
+  // usage: entities.add( pos, w, h, mesh, meshOffset, tick, blockTerrain, doPhysics )
+  var e = game.entities.add( pos, s, s, mesh, [s/2,s/2,s/2], null, false, true )
+  // modify physics body of entity thus
+  e.body.friction = 30
+  e.body.restitution = .2
+  e.body.onCollide = onSpellCollide.bind(e)
+  // give it thwack
   var vec = game.getCameraVector()
   vec3.normalize(vec, vec)
-  vec3.scale(vec, vec, 25)
+  vec3.scale(vec, vec, 15)
   e.body.applyImpulse(vec)
 })
-
+// onCollide function for spell entity's physics body
+function onSpellCollide(impulse) {
+  // blow up!
+  var loc = this.getPosition().map(Math.floor)
+  var rad = 4
+  for (var i=-rad; i<=rad; ++i) {
+    for (var j=-rad; j<=rad; ++j) {
+      for (var k=-rad; k<=rad; ++k) {
+        if (i*i + j*j + k*k <= rad*rad) {
+          console.log( 0, i+loc[0], j+loc[1], k+loc[2] )
+          game.setBlock( 0, i+loc[0], j+loc[1], k+loc[2] )
+        }
+      }
+    }
+  }
+  game.entities.remove(this)
+}
