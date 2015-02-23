@@ -38,7 +38,7 @@ game.inputs.down.on('mid-fire', function() {
 // on right mouse, place remembered block adjacent to target
 game.inputs.down.on('alt-fire', function() {
   var loc = game.getTargetBlockAdjacent()
-  if (loc) game.setBlock(placeBlockID, loc);
+  if (loc) game.addBlock(placeBlockID, loc); // addBlock works only if spot is clear
 })
 
 
