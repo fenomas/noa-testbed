@@ -1,6 +1,6 @@
 {
   "name": "noa-hello-world",
-  "version": "0.0.2",
+  "version": "0.1.0",
   "description": "Test world for experimental game engine",
   "main": "index.js",
   "scripts": {
@@ -16,7 +16,8 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "noa": "andyhall/noa#d267ab62a3c6a0651561efe763bd6e0b36059653",
+    "gl-vec3": "^1.0.3",
+    "noa": "andyhall/noa#c0774142b8e757a8d8c2703b119a94e7b81efd17",
     "painterly-textures": "0.0.3"
   },
   "devDependencies": {
