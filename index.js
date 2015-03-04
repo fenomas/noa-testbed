@@ -64,6 +64,11 @@ game.inputs.down.on('alt-fire', function() {
   if (loc) game.addBlock(placeBlockID, loc); // addBlock works only if spot is clear
 })
 
+// register "i" key to invert mouse
+game.inputs.bind('invertY', 'I')
+game.inputs.down.on('invertY', function() {
+  game.controls.inverseY = !game.controls.inverseY
+})
 
 
 /*
