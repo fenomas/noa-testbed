@@ -10,6 +10,8 @@ window.simples = simplex
 var xzScale = 80,
     yScale = 6
 
+// ids: stone, dirt, colors... , grass
+var blockIDs = [ 3,1,4,5,6,7,8,9,2 ]
 
 function generate( chunk, x, y, z ) {
   var dx = chunk.shape[0]
@@ -26,16 +28,11 @@ function generate( chunk, x, y, z ) {
       for (var j=0; j<dy; ++j) {
         var cy = y + j
         var blockID = (cy > height) ? 0 : 1   // default to air/dirt
-        if (cy==height) {
-          if (cy <= -4) blockID = 3      // cobblestone
-          if (cy == -3) blockID = 1
-          if (cy == -2) blockID = 4
-          if (cy == -1) blockID = 5
-          if (cy ==  0) blockID = 6
-          if (cy ==  1) blockID = 7
-          if (cy ==  2) blockID = 8
-          if (cy ==  3) blockID = 9
-          if (cy >=  4) blockID = 2      // grass
+        if (cy==height) { // different id for surface blocks
+          var ix = cy + 4
+          if (ix<0) ix=0
+          if (ix>=blockIDs.length) ix=blockIDs.length-1
+          blockID = blockIDs[ix]
         }
         chunk.set( i,j,k, blockID )
       }
