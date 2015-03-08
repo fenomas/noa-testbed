@@ -11,12 +11,44 @@ var opts = {
   texturePath: 'painterly/',
   chunkAddDistance: 2,
   chunkRemoveDistance: 3,
+  // player
+  playerStart: [0,20,0],
+  playerHeight: 1.8,
+  playerWidth: 0.6,
 }
 
 
 // create engine
 var game = noa( opts )
 
+
+/*
+ *    placeholder mesh for the player
+*/
+
+var ph = opts.playerHeight,
+    pw = opts.playerWidth
+var s = game.rendering.getScene()
+var pmesh = new BABYLON.Mesh.CreateBox('p', 1, s)
+pmesh.scaling = new BABYLON.Vector3( pw, ph, pw )
+var pmat = new BABYLON.StandardMaterial('m', s)
+pmat.diffuseColor = new BABYLON.Color3( .5, .5, .7 )
+pmesh.material = pmat
+game.setPlayerMesh(pmesh, [pw/2, ph/2, pw/2] )
+
+
+/*
+ *    spawn some simple "mob" entities
+*/
+
+var createMob = require('./mob')
+for (var i=0; i<10; ++i) {
+  var size = Math.random()*2
+  var x = 50 - 100*Math.random()
+  var y =  8 +   8*Math.random()
+  var z = 50 - 100*Math.random()
+  createMob( game, size, size, x, y, z )
+}
 
 /*
  *      define block types and register materials
@@ -83,33 +115,37 @@ game.inputs.down.on('earthbomb', function() {
   var scene = game.rendering.getScene()
   var mesh = BABYLON.Mesh.CreateSphere('s1', 2, s, scene)
   mesh.material = getSpellMat(scene,1)
-  var pos = game.getCameraPosition()
+  var pos = game.getPlayerEyePosition()
   // usage: entities.add( pos, w, h, mesh, meshOffset, data, tick, blockTerrain, doPhysics )
   var dat = {}
-  var e = game.entities.add( pos, s, s, mesh, [s/2,s/2,s/2], dat, null, false, true )
+  var e = game.entities.add( pos, s, s, mesh, [s/2,s/2,s/2], 
+                            dat, true, true, false )
   // adjust physics properties thusly
   e.body.gravityMultiplier = .5
   // flashy particle trail
   dat.particles = addSmokeParticles(scene, mesh, 400, s, .2, .3, false)
   // blow up on terrain collision
-  e.body.onCollide = function onSpellCollide(impulse) {
-    addBlocksInSphere(scene, placeBlockID, this.getPosition(), window.a)
+  e.on('collideTerrain', function onSpellCollide(impulse) {
+    addBlocksInSphere(scene, placeBlockID, e.getPosition(), 2.3 )
     dat.particles.stop()
     game.entities.remove(e)
-  }
+  })
   // give it thwack
   launchAlongCameraVector(e, 10)
 })
-window.a = 2
+
 game.inputs.bind('timebomb', '2')
 game.inputs.down.on('timebomb', function() {
   var s = .5 //size
   var scene = game.rendering.getScene()
   var mesh = BABYLON.Mesh.CreateSphere('s2', 2, s, scene)
   mesh.material = getSpellMat(scene,2)
-  var pos = game.getCameraPosition()
+  var pos = game.getPlayerEyePosition()
   var dat = { counter: 3000 } // ms
-  var e = game.entities.add( pos, s, s, mesh, [s/2,s/2,s/2], dat, spell2Tick, false, true )
+  var e = game.entities.add( pos, s, s, mesh, [s/2,s/2,s/2], 
+                            dat, true, true, false )
+  // tick function
+  e.on('tick', spell2Tick.bind(e))
   // give it some bounce and friction
   e.body.friction = 8
   e.body.restitution = .3
