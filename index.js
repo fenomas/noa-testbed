@@ -221,43 +221,43 @@ function launchAlongCameraVector(e, impulse) {
 
 
 // particle-related helpers
+// note that Babylon uses a Vector3 class that's unlike gl-vec3
 
+var babvec3 = BABYLON.Vector3
+var babcol4 = BABYLON.Color4
 
 function addSmokeParticles(scene, src, num, volume, size, duration, oneoff) {
-  var vec3 = BABYLON.Vector3
-  var col4 = BABYLON.Color4
-
   // oneoff means emit num particles and stop, otherwise num is emitRate
   var pool = oneoff ? num : num*duration*1.5
   var particles = new BABYLON.ParticleSystem("p", pool, scene)
   var s = volume/2   // half-width of volume to fill
   
   if (src.length) { // array, treat it as a static location
-    particles.emitter = new vec3( src[0]+s, src[1]+s, src[2]+s)
+    particles.emitter = new babvec3( src[0]+s, src[1]+s, src[2]+s)
   } else { // otherwise assume it's a mesh to attach to
     particles.emitter = src
   }
   particles.particleTexture = getSmokeTex(scene)
   particles.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD
 
-  particles.color1 = new col4( .3, .3, .3, 1 )
-  particles.color2 = new col4( .5, .5, .5, .1 )
-  particles.colorDead = new col4( .6,.6,.6, 0)
+  particles.color1 = new babcol4( .3, .3, .3, 1 )
+  particles.color2 = new babcol4( .5, .5, .5, .1 )
+  particles.colorDead = new babcol4( .6,.6,.6, 0)
 
-  particles.minEmitBox = new vec3( -s,-s,-s )
-  particles.maxEmitBox = new vec3(  s, s, s )
+  particles.minEmitBox = new babvec3( -s,-s,-s )
+  particles.maxEmitBox = new babvec3(  s, s, s )
   particles.minSize = size
   particles.maxSize = size*1.5
 
-  particles.direction1 = new vec3( -s, s,-s )
-  particles.direction2 = new vec3(  s, s, s )
+  particles.direction1 = new babvec3( -s, s,-s )
+  particles.direction2 = new babvec3(  s, s, s )
   particles.minEmitPower = 2
   particles.maxEmitPower = 4 
 
   particles.minLifeTime = duration/2
   particles.maxLifeTime = duration
   particles.updateSpeed = 0.005
-  particles.gravity = new vec3(0, 10, 0)
+  particles.gravity = new babvec3(0, 10, 0)
 
   if (oneoff) {
     particles.manualEmitCount = 10*num/particles.updateSpeed
@@ -278,33 +278,30 @@ function getSmokeTex(scene) {
 
 
 function addFireParticles(scene, mesh, yoff, rate, size, duration) {
-  var vec3 = BABYLON.Vector3
-  var col4 = BABYLON.Color4
-
   var pool = rate*duration*1.5
   var particles = new BABYLON.ParticleSystem("p", pool, scene)
   particles.emitter = mesh
   particles.particleTexture = getFireTex(scene)
   particles.blendMode = BABYLON.ParticleSystem.BLENDMODE_ONEONE
 
-  particles.color1 = new col4( .8, .5, 0, 1 )
-  particles.color2 = new col4( .5, .2, 0, 1 )
-  particles.colorDead = new col4( .1,.1,.1, 0)
+  particles.color1 = new babcol4( .8, .5, 0, 1 )
+  particles.color2 = new babcol4( .5, .2, 0, 1 )
+  particles.colorDead = new babcol4( .1,.1,.1, 0)
 
-  particles.minEmitBox = new vec3( 0, yoff, 0 )
-  particles.maxEmitBox = new vec3( 0, yoff, 0 )
+  particles.minEmitBox = new babvec3( 0, yoff, 0 )
+  particles.maxEmitBox = new babvec3( 0, yoff, 0 )
   particles.minSize = size
   particles.maxSize = size*1.5
 
-  particles.direction1 = new vec3( -1,   1, -1 )
-  particles.direction2 = new vec3(  1, 1.5,  1 )
+  particles.direction1 = new babvec3( -1,   1, -1 )
+  particles.direction2 = new babvec3(  1, 1.5,  1 )
   particles.minEmitPower = 2
   particles.maxEmitPower = 3
 
   particles.minLifeTime = duration/2
   particles.maxLifeTime = duration
   particles.updateSpeed = 0.005
-  particles.gravity = new vec3(0, -20, 0)
+  particles.gravity = new babvec3(0, -20, 0)
   particles.emitRate = rate
   particles.disposeOnStop = true
   particles.start()
