@@ -8,9 +8,9 @@ var opts = {
   // world data
   chunkSize: 32,
   generator: require('./worldgen'), // pass in a more interesting generator function
-  texturePath: 'painterly/',
+  texturePath: 'textures/',
   chunkAddDistance: 2,
-  chunkRemoveDistance: 3,
+  chunkRemoveDistance: 2,
   // player
   playerStart: [0,20,0],
   playerHeight: 1.8,
@@ -26,16 +26,22 @@ var game = noa( opts )
  *    placeholder mesh for the player
 */
 
+// register a spritesheet which has player/mob sprites
+game.registry.defineSpriteSheet(0,'sprites.png',100,32)
+
 var ph = opts.playerHeight,
     pw = opts.playerWidth
 var s = game.rendering.getScene()
-var pmesh = new BABYLON.Mesh.CreateBox('p', 1, s)
-pmesh.scaling = new BABYLON.Vector3( pw, ph, pw )
-var pmat = new BABYLON.StandardMaterial('m', s)
-pmat.diffuseColor = new BABYLON.Color3( .5, .5, .7 )
-pmesh.material = pmat
-game.setPlayerMesh(pmesh, [pw/2, ph/2, pw/2] )
+var psprite = game.rendering.makeEntitySprite(0,0)
+psprite.size = ph
 
+game.setPlayerMesh(psprite, [pw/2, ph/2, pw/2] )
+
+// simplest animation evar
+game.playerEntity.on('tick',function() {
+  var onground = this.body.resting[1] < 0
+  this.mesh.cellIndex = (onground) ? 0 : 1
+})
 
 /*
  *    spawn some simple "mob" entities
@@ -43,7 +49,7 @@ game.setPlayerMesh(pmesh, [pw/2, ph/2, pw/2] )
 
 var createMob = require('./mob')
 for (var i=0; i<10; ++i) {
-  var size = Math.random()*2
+  var size = 1+Math.random()*2
   var x = 50 - 100*Math.random()
   var y =  8 +   8*Math.random()
   var z = 50 - 100*Math.random()
@@ -266,7 +272,7 @@ function addSmokeParticles(scene, src, num, volume, size, duration, oneoff) {
 
 var smokeTex
 function getSmokeTex(scene) {
-  if (!smokeTex) smokeTex = new BABYLON.Texture("particle_standard.png", scene)
+  if (!smokeTex) smokeTex = new BABYLON.Texture("textures/particle_standard.png", scene)
   return smokeTex.clone()
 }
 
@@ -307,6 +313,6 @@ function addFireParticles(scene, mesh, yoff, rate, size, duration) {
 
 var fireTex
 function getFireTex(scene) {
-  if (!fireTex) fireTex = new BABYLON.Texture("particle_oneone.png", scene)
+  if (!fireTex) fireTex = new BABYLON.Texture("textures/particle_oneone.png", scene)
   return fireTex.clone()
 }
