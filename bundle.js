@@ -9,9 +9,9 @@ var opts = {
   // world data
   chunkSize: 32,
   generator: require('./worldgen'), // pass in a more interesting generator function
-  texturePath: 'painterly/',
+  texturePath: 'textures/',
   chunkAddDistance: 2,
-  chunkRemoveDistance: 3,
+  chunkRemoveDistance: 2,
   // player
   playerStart: [0,20,0],
   playerHeight: 1.8,
@@ -27,16 +27,22 @@ var game = noa( opts )
  *    placeholder mesh for the player
 */
 
+// register a spritesheet which has player/mob sprites
+game.registry.defineSpriteSheet(0,'sprites.png',100,32)
+
 var ph = opts.playerHeight,
     pw = opts.playerWidth
 var s = game.rendering.getScene()
-var pmesh = new BABYLON.Mesh.CreateBox('p', 1, s)
-pmesh.scaling = new BABYLON.Vector3( pw, ph, pw )
-var pmat = new BABYLON.StandardMaterial('m', s)
-pmat.diffuseColor = new BABYLON.Color3( .5, .5, .7 )
-pmesh.material = pmat
-game.setPlayerMesh(pmesh, [pw/2, ph/2, pw/2] )
+var psprite = game.rendering.makeEntitySprite(0,0)
+psprite.size = ph
 
+game.setPlayerMesh(psprite, [pw/2, ph/2, pw/2] )
+
+// simplest animation evar
+game.playerEntity.on('tick',function() {
+  var onground = this.body.resting[1] < 0
+  this.mesh.cellIndex = (onground) ? 0 : 1
+})
 
 /*
  *    spawn some simple "mob" entities
@@ -44,7 +50,7 @@ game.setPlayerMesh(pmesh, [pw/2, ph/2, pw/2] )
 
 var createMob = require('./mob')
 for (var i=0; i<10; ++i) {
-  var size = Math.random()*2
+  var size = 1+Math.random()*2
   var x = 50 - 100*Math.random()
   var y =  8 +   8*Math.random()
   var z = 50 - 100*Math.random()
@@ -267,7 +273,7 @@ function addSmokeParticles(scene, src, num, volume, size, duration, oneoff) {
 
 var smokeTex
 function getSmokeTex(scene) {
-  if (!smokeTex) smokeTex = new BABYLON.Texture("particle_standard.png", scene)
+  if (!smokeTex) smokeTex = new BABYLON.Texture("textures/particle_standard.png", scene)
   return smokeTex.clone()
 }
 
@@ -308,7 +314,7 @@ function addFireParticles(scene, mesh, yoff, rate, size, duration) {
 
 var fireTex
 function getFireTex(scene) {
-  if (!fireTex) fireTex = new BABYLON.Texture("particle_oneone.png", scene)
+  if (!fireTex) fireTex = new BABYLON.Texture("textures/particle_oneone.png", scene)
   return fireTex.clone()
 }
 
@@ -323,16 +329,15 @@ module.exports = createMob
 
 function createMob( game, w, h, x, y, z ) {
   var scene = game.rendering.getScene()
-  var mesh = new BABYLON.Mesh.CreateBox('m', 1, scene)
-  mesh.material = getMobMat(scene)
-  mesh.scaling = new BABYLON.Vector3( w, h, w )
+  var sprite = game.rendering.makeEntitySprite(0,2)
+  sprite.size = w
   var offset = [w/2, h/2, w/2]
   var dat = { lastHit:0 }
   
   // add an entity for the "mob"
   var ent = game.entities.add(
     [x,y,z],              // starting loc
-    w, h, mesh, offset,   // size, mesh, mesh offset
+    w, h, sprite, offset, // size, mesh, mesh offset
     dat, true,            // data object, do physics
     true, true            // collide terrain, collide entities
   )
@@ -346,7 +351,7 @@ function collideEntity(game, other) {
   /* jshint validthis:true */
   if (other==game.playerEntity) {
     var d = new Date()
-    if (d-this.data.lastHit < 200) return
+    if (d-this.data.lastHit < 400) return
     this.data.lastHit = d
     // repulse along relative vector, angled up a bit
     var v = vec3.create()
@@ -360,12 +365,13 @@ function collideEntity(game, other) {
 
 function mobTick(dt) {
   /* jshint validthis:true */
-  if (this.body.resting[1] >= 0) return // don't jump unless on ground
-  if (Math.random() < .01) {
-    // jump
+  var onground = this.body.resting[1] < 0
+  this.mesh.cellIndex = (onground) ? 2 : 3
+  if (onground && Math.random() < .01) {   // jump!
     var x = 4-8*Math.random()
     var z = 4-8*Math.random()
-    this.body.applyForce([x,7,z])
+    var y = 7+5*Math.random()
+    this.body.applyImpulse([x,y,z])
   }
 }
 
@@ -1193,10 +1199,6 @@ Engine.prototype.tick = function() {
   this.entities.tick(dt)     // move entities and call their tick functions
   this.emit('tick', dt)
   this.inputs.tick(dt)       // clears cumulative input values
-}
-
-Engine.prototype.render = function(dt) {
-  this.rendering.render()
 }
 
 
@@ -30821,7 +30823,7 @@ function onShellInit(self) {
   var noa = self._noa
   var shell = self._shell
   shell.on('tick',   noa.tick.bind(noa) )
-  shell.on('render', noa.render.bind(noa) )
+  shell.on('render', noa.rendering.render.bind(noa.rendering) )
   shell.on('resize', noa.rendering.resize.bind(noa.rendering) )
   // let other components know DOM is ready
   self.emit( 'DOMready' )
@@ -31267,7 +31269,7 @@ var d, u, v,
 
 
 function greedyND(arr, getMaterial, getColor, aoValues, doAO) {
-  var meshes = [] // return object, holder for Submeshes
+  var submeshes = [] // return object, holder for Submeshes
 
   //Sweep over each axis, mapping axes to [d,u,v]
   for(d=0; d<3; ++d) {
@@ -31381,8 +31383,8 @@ function greedyND(arr, getMaterial, getColor, aoValues, doAO) {
 
             // material and mesh for this face
             matID = Math.abs(maskVal)
-            mesh = meshes[matID]
-            if (!mesh) mesh = meshes[matID] = new Submesh(matID)
+            mesh = submeshes[matID]
+            if (!mesh) mesh = submeshes[matID] = new Submesh(matID)
             c = getColor(matID)
             
             // push AO-modified vertex colors (or just colors)
@@ -31479,7 +31481,7 @@ function greedyND(arr, getMaterial, getColor, aoValues, doAO) {
     }
   }
   // done, return array of submeshes
-  return meshes
+  return submeshes
 }
 
 
@@ -31575,6 +31577,8 @@ function Registry(noa, opts) {
   this._materialColors =   [ null ]  // 0: air
   this._materialTextures = [ null ]  // 0: air
 
+  this._spriteSheets = []
+  
   // define some default values that may be overwritten
   this.defineBlock( 1, 1 )
   this.defineBlock( 2, 2 )
@@ -31615,13 +31619,21 @@ Registry.prototype.defineBlock = function(blockID, matID) {
   }
 }
 
-Registry.prototype.defineMaterial = function(matID, col, tex) {
+Registry.prototype.defineMaterial = function(matID, col, texURL) {
   this._materialColors[matID] = col
-  this._materialTextures[matID] = tex ? this._texturePath+tex : null
+  this._materialTextures[matID] = texURL ? this._texturePath+texURL : null
 }
 
 
+// Sprite sheet registry for sprite-meshed entities
 
+Registry.prototype.defineSpriteSheet = function(sheetID, texURL, count, size) {
+  this._spriteSheets[sheetID] = {
+    url: this._texturePath+texURL,
+    size: size,
+    count: count
+  }
+}
 
 
 
@@ -31655,7 +31667,7 @@ var defaults = {
 function Rendering(noa, _opts, canvas) {
   this.noa = noa
   var opts = extend( {}, defaults, _opts )
-  
+
   // set up babylon scene
   initScene(this, canvas, opts)
 
@@ -31670,6 +31682,7 @@ function Rendering(noa, _opts, canvas) {
   window.scene = this._scene
   // ad-hoc for now, will later be stored in registry?
   this._materials = []
+  this._spriteManagers = []
 }
 
 // Constructor helper - set up the Babylon.js scene and basic components
@@ -31712,7 +31725,7 @@ Rendering.prototype.tick = function(dt) {
 Rendering.prototype.render = function() {
   var eye = this.noa.getPlayerEyePosition()
   this._cameraHolder.position = new vec3( eye[0], eye[1], eye[2] )
-  
+
   this._engine.beginFrame()
   this._scene.render()
   this._engine.endFrame()
@@ -31743,6 +31756,26 @@ Rendering.prototype.setCameraZoomLevel = function(zoom) {
   this._camera.position.z = -zoom
 }
 
+/*
+ *   Entity sprite/mesh management
+*/
+
+Rendering.prototype.makeEntitySprite = function(sheetID, cell) {
+  if (!this._spriteManagers[sheetID]) {
+    var reg = this.noa.registry._spriteSheets[sheetID]
+    this._spriteManagers[sheetID] = 
+      new BABYLON.SpriteManager("mgr", reg.url, reg.count, reg.size, this._scene, undefined,
+                                BABYLON.Texture.NEAREST_SAMPLINGMODE)
+  }
+  var mgr = this._spriteManagers[sheetID]
+  var sprite = new BABYLON.Sprite('s',mgr)
+  sprite.cellIndex = cell
+  return sprite
+}
+
+
+
+
 
 /*
  *   CHUNK ADD/CHANGE/REMOVE HANDLING
@@ -31752,15 +31785,12 @@ function onChunkAdded( self, chunk, id, x, y, z ) {
   // newly created chunks go to the end of the queue
   var o = { chunk:chunk, id:id, x:x, y:y, z:z }
   enqueueChunkUniquely( o, self._chunksToMesh, false )
-  //  addMeshChunk( self, chunk, id, x, y, z )
 }
 
 function onChunkChanged( self, chunk, id, x, y, z ) {
   // changed chunks go to the head of the queue
   var o = { chunk:chunk, id:id, x:x, y:y, z:z }
   enqueueChunkUniquely( o, self._chunksToMesh, true )
-  //  removeMesh( self, id)
-  //  addMeshChunk( self, chunk, id, x, y, z )  
 }
 
 function onChunkRemoved( self, id ) {
@@ -31773,8 +31803,12 @@ function doDeferredMeshing(self) {
   var obj = self._chunksToMesh.shift()
   // remove current version if this is an update to an existing chunk
   if (self._meshedChunks[obj.id]) removeMesh(self, obj.id)
-  // mesh it
-  addMeshChunk(self, obj.chunk, obj.id, obj.x, obj.y, obj.z)
+  // mesh it and add to babylon scene
+  var meshdata = meshChunk(self, obj.chunk)
+  if (meshdata.length) {
+    var mesh = makeSubmeshes(self, meshdata, obj.id, obj.x, obj.y, obj.z)
+    self._meshedChunks[obj.id] = mesh
+  }
 }
 
 
@@ -31800,44 +31834,17 @@ function removeMesh(self, id) {
   delete self._meshedChunks[id]
 }
 
-function addMeshChunk(self, chunk, id, x, y, z) {
+
+// given an updated chunk reference, run it through mesher
+function meshChunk(self, chunk) {
   var noa = self.noa
   // first pass chunk data to mesher
   var aovals = [ 1, 0.8, 0.6 ]
   // TODO: pass in material/colors/chunk metadata somehow
   var matGetter = noa.registry.getBlockFaceMaterial.bind(noa.registry)
   var colGetter = noa.registry.getMaterialColor.bind(noa.registry)
-  var meshDataArr = noa.mesher.meshChunk( chunk, matGetter, colGetter, aovals )
-  // skip adding the mesh if chunk was empty
-  if (meshDataArr.length===0) { return }
-
-  // now create process the vertex/normal/etc. arrays into meshes
-  // holder mesh - this is what we dispose to get rid of the whole mesh chunk
-  var chunkMesh = new BABYLON.Mesh( 'm_'+id, self._scene )
-  if (x) chunkMesh.position.x = x
-  if (y) chunkMesh.position.y = y
-  if (z) chunkMesh.position.z = z
-  // meshArr is what comes from mesher - sparsely keyed
-  for (var i in meshDataArr) {
-    // mdat is instance of Mesher#Submesh
-    var mdat = meshDataArr[i]
-    // get or create babylon material
-    var mat = getMaterial(self, mdat.id)
-
-    var m = new BABYLON.Mesh( "sub", self._scene )
-    m.material = mat
-    m.parent = chunkMesh
-
-    var vdat = new BABYLON.VertexData()
-    vdat.positions = mdat.positions
-    vdat.indices =   mdat.indices
-    vdat.normals =   mdat.normals
-    vdat.colors =    mdat.colors
-    vdat.uvs =       mdat.uvs
-
-    vdat.applyToMesh( m )
-  }
-  self._meshedChunks[id] = chunkMesh
+  // returns an array of mesher#Submesh
+  return noa.mesher.meshChunk( chunk, matGetter, colGetter, aovals )
 }
 
 
@@ -31886,85 +31893,91 @@ function getHighlightMesh(rendering) {
 
 
 //
-// Experimental Multi-material version that didn't help performance..
+// Given arrays of data for an enmeshed chunk, create a 
+// babylon mesh with each terrain material as a different submesh
 //
-//Rendering.prototype.addMultiMesh = function(meshArr, x, y, z) {
-//  var scene = this._scene
-//  // mesh to contain combined inputted geometries
-//  var mesh = new BABYLON.Mesh( 'm'+[x,y,z].join('-'), scene )
-//  // make collections of data arrays
-//  var ids       = [],
-//      positions = [],
-//      indices   = [],
-//      normals   = [],
-//      colors    = [],
-//      uvs       = []
-//  // loop through inputs collecting data (array of arrays)
-//  for (var i in meshArr) {
-//    var mdat = meshArr[i]
-//    // mdat is instance of Mesher#Submesh
-//    ids.push(       mdat.id )
-//    positions.push( mdat.positions )
-//    indices.push(   mdat.indices )
-//    normals.push(   mdat.normals )
-//    colors.push(    mdat.colors )
-//    uvs.push(       mdat.uvs )
-//  }
-//  // make a big vdat and concat all the collected array data into it
-//  var vdat = new BABYLON.VertexData()
-//  var arr = []
-//  vdat.positions = arr.concat.apply( [], positions )
-//  vdat.indices =   arr.concat.apply( [], indices )
-//  vdat.normals =   arr.concat.apply( [], normals )
-//  vdat.colors =    arr.concat.apply( [], colors )
-//  vdat.uvs =       arr.concat.apply( [], uvs )
-//  // populate the mesh and give it the multi material
-//  vdat.applyToMesh( mesh )
-//  var mat = getMultiMaterial(this)
-//  mesh.material = mat
-//  // create the submeshes pointing to multimaterial IDs
-//  var vertStart = 0
-//  var indStart = 0
-//  for (i=0; i<ids.length; ++i) {
-//    var matID = ids[i]
-////    var verts = positions[i].length / 3
-////    var verts = vdat.positions.length / 3
-//    var verts = mesh.getTotalVertices()
-//    var inds = indices[i].length
-//    var sub = new BABYLON.SubMesh(matID, vertStart, verts, indStart, inds, mesh)
-//    vertStart += verts
-//    indStart += inds
-////    mesh.subMeshes.push(sub)
-//  }
-////  throw new Error()
-//  // position the created mesh
-//  if (x) mesh.position.x = x
-//  if (y) mesh.position.y = y
-//  if (z) mesh.position.z = z;
-//}
-//
-//function getMultiMaterial( rendering ) {
-//  var scene = rendering._scene
-//  var multi = rendering.multiMat
-//  if (!multi) {
-//    // create a multimate to use for terrain..
-//    multi = rendering.multiMat = new BABYLON.MultiMaterial("multi", scene)
-//    // base material
-//    var base = new BABYLON.StandardMaterial("base", scene)
-//    // little shine to remind myself this is an engine material
-//    base.specularColor = new col3( 0.15, 0.15, 0.15 )
-//    // clone a series, each with necessary texture
-//    var texarr = rendering.noa.materialTextures
-//    for (var i=0; i<texarr.length; ++i) {
-//      var mat = base.clone('submat'+i)
-//      if (texarr[i]) {
-//        mat.ambientTexture = new BABYLON.Texture(texarr[i], scene, true,false, BABYLON.Texture.NEAREST_SAMPLINGMODE)
-//      }
-//      multi.subMaterials.push(mat)
-//    }
-//  }
-//  return multi
-//}
+function makeSubmeshes(self, meshdata, id, x, y, z) {
+  var scene = self._scene
+  // create/position mesh to new submeshes
+  var mesh = new BABYLON.Mesh( 'm'+id, scene )
+  // make collections of data arrays
+  var ids       = [],
+      positions = [],
+      indices   = [],
+      normals   = [],
+      colors    = [],
+      uvs       = []
+  // loop through inputs collecting data (array of arrays)
+  meshdata.map(function(mdat) {
+    // mdat is instance of Mesher#Submesh
+    ids.push(       mdat.id )
+    positions.push( mdat.positions )
+    indices.push(   mdat.indices )
+    normals.push(   mdat.normals )
+    colors.push(    mdat.colors )
+    uvs.push(       mdat.uvs )
+  })
+  // make a big vdat and concat all the collected array data into it
+  var vdat = new BABYLON.VertexData()
+  var concat = Array.prototype.concat
+  vdat.positions = concat.apply( [], positions )
+  vdat.normals =   concat.apply( [], normals )
+  vdat.colors =    concat.apply( [], colors )
+  vdat.uvs =       concat.apply( [], uvs )
+  // indices are relative, so offset each set after the first
+  var offset = positions[0].length/3
+  for (var i=1; i<indices.length; ++i) {
+    for (var j=0; j<indices[i].length; ++j) {
+      indices[i][j] += offset
+    }
+    offset += positions[i].length/3
+  }
+  vdat.indices = concat.apply( [], indices )
+  // populate the mesh and give it the multi material
+  vdat.applyToMesh( mesh )
+  var mat = getMultiMaterial(self)
+  mesh.material = mat
+  // create the submeshes pointing to multimaterial IDs
+  mesh.subMeshes = []
+  var vertStart = 0
+  var indStart = 0
+  for (i=0; i<ids.length; ++i) {
+    var matID = ids[i]
+    var verts = positions[i].length / 3
+    var inds = indices[i].length
+    var sub = new BABYLON.SubMesh(matID, vertStart, verts, indStart, inds, mesh)
+    vertStart += verts
+    indStart += inds
+  }
+  // position parent and done
+  if (x) mesh.position.x = x
+  if (y) mesh.position.y = y
+  if (z) mesh.position.z = z
+  return mesh
+}
+
+function getMultiMaterial( rendering ) {
+  var scene = rendering._scene
+  var multi = rendering.multiMat
+  if (!multi) {
+    // create a multimate to use for terrain..
+    multi = rendering.multiMat = new BABYLON.MultiMaterial("multi", scene)
+    // base material
+    var base = new BABYLON.StandardMaterial("base", scene)
+    // little shine to remind myself this is an engine material
+    base.specularColor = new col3( 0.15, 0.15, 0.15 )
+    // clone a series, each with necessary texture
+    var texarr = rendering.noa.registry._materialTextures
+    for (var i=0; i<texarr.length; ++i) {
+      var mat = base.clone('submat'+i)
+      if (texarr[i]) {
+        mat.ambientTexture = new BABYLON.Texture(texarr[i], scene, true,false, BABYLON.Texture.NEAREST_SAMPLINGMODE)
+      }
+      multi.subMaterials.push(mat)
+    }
+  }
+  return multi
+}
 
 
 
@@ -32050,7 +32063,6 @@ World.prototype.setBlock = function (id,x,y,z) {
   z = (z<0) ? z-k*cs : z%cs
   chunk.set( x, y, z, id )
   // alert world
-  var cs = this.chunkSize
   this.emit( 'chunkChanged', chunk, getChunkID(i,j,k), cs*i, cs*j, cs*k )
 }
 
@@ -32071,12 +32083,12 @@ World.prototype.tick = function() {
   
   // remove a chunk if needed, else, add one if needed
   if (this._chunksToRemove.length) {
-    var loc = this._chunksToRemove.shift()
-    removeChunk( this, loc[0], loc[1], loc[2] )
+    var remove = this._chunksToRemove.shift()
+    removeChunk( this, remove[0], remove[1], remove[2] )
   } else if (this._chunksToAdd.length) {
     var index = findClosestChunk( i, j, k, this._chunksToAdd )
-    var loc = this._chunksToAdd.splice(index,1)[0]
-    addNewChunk( this, loc[0], loc[1], loc[2] )
+    var toadd = this._chunksToAdd.splice(index,1)[0]
+    addNewChunk( this, toadd[0], toadd[1], toadd[2] )
   }
 }
 
