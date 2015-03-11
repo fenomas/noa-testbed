@@ -8,9 +8,9 @@ var opts = {
   // world data
   chunkSize: 32,
   generator: require('./worldgen'), // pass in a more interesting generator function
-  texturePath: 'painterly/',
+  texturePath: 'textures/',
   chunkAddDistance: 2,
-  chunkRemoveDistance: 3,
+  chunkRemoveDistance: 2,
   // player
   playerStart: [0,20,0],
   playerHeight: 1.8,
@@ -266,7 +266,7 @@ function addSmokeParticles(scene, src, num, volume, size, duration, oneoff) {
 
 var smokeTex
 function getSmokeTex(scene) {
-  if (!smokeTex) smokeTex = new BABYLON.Texture("particle_standard.png", scene)
+  if (!smokeTex) smokeTex = new BABYLON.Texture("textures/particle_standard.png", scene)
   return smokeTex.clone()
 }
 
@@ -307,6 +307,6 @@ function addFireParticles(scene, mesh, yoff, rate, size, duration) {
 
 var fireTex
 function getFireTex(scene) {
-  if (!fireTex) fireTex = new BABYLON.Texture("particle_oneone.png", scene)
+  if (!fireTex) fireTex = new BABYLON.Texture("textures/particle_oneone.png", scene)
   return fireTex.clone()
 }
