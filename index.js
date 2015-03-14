@@ -1,16 +1,19 @@
 var vec3 = require('gl-vec3')
 var noa = require('noa')
 
+// local modules
+var createMob = require('./lib/mob')
+var worldgen = require('./lib/worldgen')
 var opts = {
   // inputs
   pointerLock: true,
   inverseY: true,
   // world data
   chunkSize: 32,
-  generator: require('./worldgen'), // pass in a more interesting generator function
+  generator: worldgen, // pass in a more interesting generator function
   texturePath: 'textures/',
   chunkAddDistance: 2,
-  chunkRemoveDistance: 2,
+  chunkRemoveDistance: 3,
   // player
   playerStart: [0,20,0],
   playerHeight: 1.8,
@@ -47,7 +50,7 @@ game.playerEntity.on('tick',function() {
  *    spawn some simple "mob" entities
 */
 
-var createMob = require('./mob')
+
 for (var i=0; i<10; ++i) {
   var size = 1+Math.random()*2
   var x = 50 - 100*Math.random()
