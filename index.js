@@ -30,12 +30,12 @@ var game = noa( opts )
 */
 
 // register a spritesheet which has player/mob sprites
-game.registry.defineSpriteSheet(0,'sprites.png',100,32)
+game.registry.registerSpritesheet('playermob','sprites.png',100,32)
 
 var ph = opts.playerHeight,
     pw = opts.playerWidth
 var s = game.rendering.getScene()
-var psprite = game.rendering.makeEntitySprite(0,0)
+var psprite = game.rendering.makeEntitySprite('playermob',0)
 psprite.size = ph
 
 game.setPlayerMesh(psprite, [pw/2, ph/2, pw/2] )
@@ -66,20 +66,23 @@ for (var i=0; i<10; ++i) {
 
 // materials
 var reg = game.registry
-reg.defineMaterial( 1, [1,1,1], 'dirt.png' )
-reg.defineMaterial( 2, [1,1,1], 'grass.png' )
-reg.defineMaterial( 3, [1,1,1], 'grass_dirt.png' )
-reg.defineMaterial( 4, [1,1,1], 'cobblestone.png' )
-for (i=5; i<30; i++) {
-  reg.defineMaterial( i, [ Math.random(), Math.random(), Math.random() ], null )
+reg.registerMaterial( 'dirt',       null, 'dirt.png' )
+reg.registerMaterial( 'grass',      null, 'grass.png' )
+reg.registerMaterial( 'grass_side', null, 'grass_dirt.png' )
+reg.registerMaterial( 'stone',      null, 'cobblestone.png' )
+for (i=1; i<30; i++) {
+  var color = [ Math.random(), Math.random(), Math.random() ]
+  reg.registerMaterial( 'color'+i, color, null)
 }
+
 // block types
-reg.defineBlock( 1, 1 )             // dirt
-reg.defineBlock( 2, [3,3,2,1,3,3] ) // grass
-reg.defineBlock( 3, 4 )             // stone
-for (var i=4; i<30; i++) {          // random colors
-  reg.defineBlock( i, i+1 )
+reg.registerBlock( 'dirt', 'dirt' )
+reg.registerBlock( 'grass', ['grass', 'dirt', 'grass_side'] )
+reg.registerBlock( 'stone', 'stone' )
+for (i=1; i<30; i++) {
+  reg.registerBlock( 'block'+i, 'color'+i )
 }
+
 
 
 /*
