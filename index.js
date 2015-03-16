@@ -4,6 +4,7 @@ var noa = require('noa')
 // local modules
 var createMob = require('./lib/mob')
 var worldgen = require('./lib/worldgen')
+var makeShadows = require('./lib/shadows')
 var opts = {
   // inputs
   pointerLock: true,
@@ -24,6 +25,7 @@ var opts = {
 // create engine
 var game = noa( opts )
 
+makeShadows(game)
 
 /*
  *    placeholder mesh for the player
