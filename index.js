@@ -19,6 +19,7 @@ var opts = {
   playerStart: [0,20,0],
   playerHeight: 1.8,
   playerWidth: 0.6,
+  playerAutoStep: true,
 }
 
 
@@ -53,7 +54,7 @@ game.playerEntity.on('tick',function() {
 */
 
 
-for (var i=0; i<10; ++i) {
+for (var i=0; i<30; ++i) {
   var size = 1+Math.random()*2
   var x = 50 - 100*Math.random()
   var y =  8 +   8*Math.random()

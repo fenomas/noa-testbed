@@ -17,7 +17,7 @@
   "license": "MIT",
   "dependencies": {
     "gl-vec3": "^1.0.3",
-    "noa": "andyhall/noa#0521bf5c20bb55c57ee518c51945e0b4a7243e47"
+    "noa": "andyhall/noa#9e128c8d00e65e8d4dc2d526ed0e3ede147adc88"
   },
   "devDependencies": {
     "beefy": "^2.1.2",
