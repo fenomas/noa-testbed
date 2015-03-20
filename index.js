@@ -1,38 +1,44 @@
 var vec3 = require('gl-vec3')
 var noa = require('noa')
 
+// local modules
+var createMob = require('./lib/mob')
+var worldgen = require('./lib/worldgen')
+var makeShadows = require('./lib/shadows')
 var opts = {
   // inputs
   pointerLock: true,
   inverseY: true,
   // world data
   chunkSize: 32,
-  generator: require('./worldgen'), // pass in a more interesting generator function
+  generator: worldgen, // pass in a more interesting generator function
   texturePath: 'textures/',
   chunkAddDistance: 2,
-  chunkRemoveDistance: 2,
+  chunkRemoveDistance: 3,
   // player
   playerStart: [0,20,0],
   playerHeight: 1.8,
   playerWidth: 0.6,
+  playerAutoStep: true,
 }
 
 
 // create engine
 var game = noa( opts )
 
+makeShadows(game)
 
 /*
  *    placeholder mesh for the player
 */
 
 // register a spritesheet which has player/mob sprites
-game.registry.defineSpriteSheet(0,'sprites.png',100,32)
+game.registry.registerSpritesheet('playermob','sprites.png',100,32)
 
 var ph = opts.playerHeight,
     pw = opts.playerWidth
 var s = game.rendering.getScene()
-var psprite = game.rendering.makeEntitySprite(0,0)
+var psprite = game.rendering.makeEntitySprite('playermob',0)
 psprite.size = ph
 
 game.setPlayerMesh(psprite, [pw/2, ph/2, pw/2] )
@@ -47,8 +53,8 @@ game.playerEntity.on('tick',function() {
  *    spawn some simple "mob" entities
 */
 
-var createMob = require('./mob')
-for (var i=0; i<10; ++i) {
+
+for (var i=0; i<30; ++i) {
   var size = 1+Math.random()*2
   var x = 50 - 100*Math.random()
   var y =  8 +   8*Math.random()
@@ -63,20 +69,23 @@ for (var i=0; i<10; ++i) {
 
 // materials
 var reg = game.registry
-reg.defineMaterial( 1, [1,1,1], 'dirt.png' )
-reg.defineMaterial( 2, [1,1,1], 'grass.png' )
-reg.defineMaterial( 3, [1,1,1], 'grass_dirt.png' )
-reg.defineMaterial( 4, [1,1,1], 'cobblestone.png' )
-for (i=5; i<30; i++) {
-  reg.defineMaterial( i, [ Math.random(), Math.random(), Math.random() ], null )
+reg.registerMaterial( 'dirt',       null, 'dirt.png' )
+reg.registerMaterial( 'grass',      null, 'grass.png' )
+reg.registerMaterial( 'grass_side', null, 'grass_dirt.png' )
+reg.registerMaterial( 'stone',      null, 'cobblestone.png' )
+for (i=1; i<30; i++) {
+  var color = [ Math.random(), Math.random(), Math.random() ]
+  reg.registerMaterial( 'color'+i, color, null)
 }
+
 // block types
-reg.defineBlock( 1, 1 )             // dirt
-reg.defineBlock( 2, [3,3,2,1,3,3] ) // grass
-reg.defineBlock( 3, 4 )             // stone
-for (var i=4; i<30; i++) {          // random colors
-  reg.defineBlock( i, i+1 )
+reg.registerBlock( 'dirt', 'dirt' )
+reg.registerBlock( 'grass', ['grass', 'dirt', 'grass_side'] )
+reg.registerBlock( 'stone', 'stone' )
+for (i=1; i<30; i++) {
+  reg.registerBlock( 'block'+i, 'color'+i )
 }
+
 
 
 /*
@@ -221,43 +230,43 @@ function launchAlongCameraVector(e, impulse) {
 
 
 // particle-related helpers
+// note that Babylon uses a Vector3 class that's unlike gl-vec3
 
+var babvec3 = BABYLON.Vector3
+var babcol4 = BABYLON.Color4
 
 function addSmokeParticles(scene, src, num, volume, size, duration, oneoff) {
-  var vec3 = BABYLON.Vector3
-  var col4 = BABYLON.Color4
-
   // oneoff means emit num particles and stop, otherwise num is emitRate
   var pool = oneoff ? num : num*duration*1.5
   var particles = new BABYLON.ParticleSystem("p", pool, scene)
   var s = volume/2   // half-width of volume to fill
   
   if (src.length) { // array, treat it as a static location
-    particles.emitter = new vec3( src[0]+s, src[1]+s, src[2]+s)
+    particles.emitter = new babvec3( src[0]+s, src[1]+s, src[2]+s)
   } else { // otherwise assume it's a mesh to attach to
     particles.emitter = src
   }
   particles.particleTexture = getSmokeTex(scene)
   particles.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD
 
-  particles.color1 = new col4( .3, .3, .3, 1 )
-  particles.color2 = new col4( .5, .5, .5, .1 )
-  particles.colorDead = new col4( .6,.6,.6, 0)
+  particles.color1 = new babcol4( .3, .3, .3, 1 )
+  particles.color2 = new babcol4( .5, .5, .5, .1 )
+  particles.colorDead = new babcol4( .6,.6,.6, 0)
 
-  particles.minEmitBox = new vec3( -s,-s,-s )
-  particles.maxEmitBox = new vec3(  s, s, s )
+  particles.minEmitBox = new babvec3( -s,-s,-s )
+  particles.maxEmitBox = new babvec3(  s, s, s )
   particles.minSize = size
   particles.maxSize = size*1.5
 
-  particles.direction1 = new vec3( -s, s,-s )
-  particles.direction2 = new vec3(  s, s, s )
+  particles.direction1 = new babvec3( -s, s,-s )
+  particles.direction2 = new babvec3(  s, s, s )
   particles.minEmitPower = 2
   particles.maxEmitPower = 4 
 
   particles.minLifeTime = duration/2
   particles.maxLifeTime = duration
   particles.updateSpeed = 0.005
-  particles.gravity = new vec3(0, 10, 0)
+  particles.gravity = new babvec3(0, 10, 0)
 
   if (oneoff) {
     particles.manualEmitCount = 10*num/particles.updateSpeed
@@ -278,33 +287,30 @@ function getSmokeTex(scene) {
 
 
 function addFireParticles(scene, mesh, yoff, rate, size, duration) {
-  var vec3 = BABYLON.Vector3
-  var col4 = BABYLON.Color4
-
   var pool = rate*duration*1.5
   var particles = new BABYLON.ParticleSystem("p", pool, scene)
   particles.emitter = mesh
   particles.particleTexture = getFireTex(scene)
   particles.blendMode = BABYLON.ParticleSystem.BLENDMODE_ONEONE
 
-  particles.color1 = new col4( .8, .5, 0, 1 )
-  particles.color2 = new col4( .5, .2, 0, 1 )
-  particles.colorDead = new col4( .1,.1,.1, 0)
+  particles.color1 = new babcol4( .8, .5, 0, 1 )
+  particles.color2 = new babcol4( .5, .2, 0, 1 )
+  particles.colorDead = new babcol4( .1,.1,.1, 0)
 
-  particles.minEmitBox = new vec3( 0, yoff, 0 )
-  particles.maxEmitBox = new vec3( 0, yoff, 0 )
+  particles.minEmitBox = new babvec3( 0, yoff, 0 )
+  particles.maxEmitBox = new babvec3( 0, yoff, 0 )
   particles.minSize = size
   particles.maxSize = size*1.5
 
-  particles.direction1 = new vec3( -1,   1, -1 )
-  particles.direction2 = new vec3(  1, 1.5,  1 )
+  particles.direction1 = new babvec3( -1,   1, -1 )
+  particles.direction2 = new babvec3(  1, 1.5,  1 )
   particles.minEmitPower = 2
   particles.maxEmitPower = 3
 
   particles.minLifeTime = duration/2
   particles.maxLifeTime = duration
   particles.updateSpeed = 0.005
-  particles.gravity = new vec3(0, -20, 0)
+  particles.gravity = new babvec3(0, -20, 0)
   particles.emitRate = rate
   particles.disposeOnStop = true
   particles.start()

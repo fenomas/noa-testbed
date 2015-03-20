@@ -17,12 +17,12 @@
   "license": "MIT",
   "dependencies": {
     "gl-vec3": "^1.0.3",
-    "noa": "andyhall/noa#6c1c81b1b11bbe583abf23c904cca5eb312728a7",
-    "painterly-textures": "0.0.3"
+    "noa": "andyhall/noa#9e128c8d00e65e8d4dc2d526ed0e3ede147adc88"
   },
   "devDependencies": {
     "beefy": "^2.1.2",
-    "browserify": "^8.1.3"
+    "browserify": "^8.1.3",
+    "painterly-textures": "0.0.3"
   },
   "repository": {
     "type": "git",
