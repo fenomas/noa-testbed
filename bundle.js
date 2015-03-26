@@ -5,7 +5,10 @@ var noa = require('noa')
 // local modules
 var createMob = require('./lib/mob')
 var worldgen = require('./lib/worldgen')
+var projectile = require('./lib/projectile')
 var makeShadows = require('./lib/shadows')
+var makeParticles = require('./lib/particles')
+
 var opts = {
   // inputs
   pointerLock: true,
@@ -16,6 +19,7 @@ var opts = {
   texturePath: 'textures/',
   chunkAddDistance: 2,
   chunkRemoveDistance: 3,
+  // rendering
   // player
   playerStart: [0,20,0],
   playerHeight: 1.8,
@@ -26,8 +30,13 @@ var opts = {
 
 // create engine
 var game = noa( opts )
+var addParticles = makeParticles(game)
+var launchProjectile = projectile(game, addParticles)
 
 makeShadows(game)
+
+
+
 
 /*
  *    placeholder mesh for the player
@@ -39,16 +48,18 @@ game.registry.registerSpritesheet('playermob','sprites.png',100,32)
 var ph = opts.playerHeight,
     pw = opts.playerWidth
 var s = game.rendering.getScene()
-var psprite = game.rendering.makeEntitySprite('playermob',0)
-psprite.size = ph
-
-game.setPlayerMesh(psprite, [pw/2, ph/2, pw/2] )
+//var psprite = game.rendering.makeEntitySprite('playermob',0)
+//psprite.size = ph
+var box = BABYLON.Mesh.CreateBox('',1,game.rendering.getScene())
+box.scaling = new BABYLON.Vector3(pw,ph,pw)
+game.setPlayerMesh(box, [pw/2, ph/2, pw/2] )
 
 // simplest animation evar
-game.playerEntity.on('tick',function() {
-  var onground = this.body.resting[1] < 0
-  this.mesh.cellIndex = (onground) ? 0 : 1
-})
+//game.playerEntity.on('tick',function() {
+//  var onground = this.body.resting[1] < 0
+//  this.mesh.cellIndex = (onground) ? 0 : 1
+//})
+
 
 /*
  *    spawn some simple "mob" entities
@@ -96,8 +107,11 @@ for (i=1; i<30; i++) {
 // on left mouse, set targeted block to be air
 game.inputs.down.on('fire', function() {
   var loc = game.getTargetBlock()
-  if (loc) game.setBlock(0, loc)
-  if (loc) addSmokeParticles(game.rendering.getScene(), loc, 80, 1, .4, .2, true);
+  if (loc) {
+    game.setBlock(0, loc)
+    // smoke for removed block
+    addParticles(1, loc, [0.5, 0.5, 0.5], 1, 80, .4, .2, true);
+  }
 })
 
 // on middle mouse, remember type of targeted block
@@ -121,210 +135,28 @@ game.inputs.down.on('invertY', function() {
 
 
 /*
- *    example "spells" that create entities on keypress
+ *  A couple of sample 'spells' that create entities and do stuff
 */
 
 
-game.inputs.bind('earthbomb', '1')
-game.inputs.down.on('earthbomb', function() {
-  var s = .3 //size
-  var scene = game.rendering.getScene()
-  var mesh = BABYLON.Mesh.CreateSphere('s1', 2, s, scene)
-  mesh.material = getSpellMat(scene,1)
-  var pos = game.getPlayerEyePosition()
-  // usage: entities.add( pos, w, h, mesh, meshOffset, data, tick, blockTerrain, doPhysics )
-  var dat = {}
-  var e = game.entities.add( pos, s, s, mesh, [s/2,s/2,s/2], 
-                            dat, true, true, false )
-  // adjust physics properties thusly
-  e.body.gravityMultiplier = .5
-  // flashy particle trail
-  dat.particles = addSmokeParticles(scene, mesh, 400, s, .2, .3, false)
-  // blow up on terrain collision
-  e.on('collideTerrain', function onSpellCollide(impulse) {
-    addBlocksInSphere(scene, placeBlockID, e.getPosition(), 2.3 )
-    dat.particles.stop()
-    game.entities.remove(e)
-  })
-  // give it thwack
-  launchAlongCameraVector(e, 10)
+game.inputs.bind('blockbomb', '1')
+game.inputs.down.on('blockbomb', function() {
+  launchProjectile(1, 0.1, 0.5, 0, 0, placeBlockID)
 })
 
 game.inputs.bind('timebomb', '2')
 game.inputs.down.on('timebomb', function() {
-  var s = .5 //size
-  var scene = game.rendering.getScene()
-  var mesh = BABYLON.Mesh.CreateSphere('s2', 2, s, scene)
-  mesh.material = getSpellMat(scene,2)
-  var pos = game.getPlayerEyePosition()
-  var dat = { counter: 3000 } // ms
-  var e = game.entities.add( pos, s, s, mesh, [s/2,s/2,s/2], 
-                            dat, true, true, false )
-  // tick function
-  e.on('tick', spell2Tick.bind(e))
-  // give it some bounce and friction
-  e.body.friction = 8
-  e.body.restitution = .3
-  e.body.gravityMultiplier = 1.5
-  // fire particles
-  dat.particles = addFireParticles(scene, mesh, s/2, 100, .2, .5)
-  // give it thwack
-  launchAlongCameraVector(e, 12)
+  launchProjectile(2, 0.5, 1.5, 10, 0.25)
 })
 
-// timebomb's "tick" function - literally, har har!
-function spell2Tick(dt) {
-  this.data.counter -= dt
-  var ct = this.data.counter
-  var blinker = (ct/250>>0) % 2
-  var m = getSpellMat(scene, blinker+2) // 2 or 3
-  if (this.mesh.material != m) this.mesh.material = m
-  if (ct < 0) {
-    // blow up
-    addBlocksInSphere( scene, 0, this.getPosition(), 2.75)
-    this.data.particles.stop()
-    game.entities.remove(this)
-  }
-}
 
 
 
-/*
- * Lots of helper functions
-*/
-
-var spellMats = []
-function getSpellMat(scene, num) {
-  if (!spellMats[num]) {
-    var m = new BABYLON.StandardMaterial('mat',scene)
-    if (num==1) m.diffuseColor = new BABYLON.Color3(  1, .5,  0 )
-    if (num==2) m.diffuseColor = new BABYLON.Color3( .1, .1, .1 )
-    if (num==3) m.diffuseColor = new BABYLON.Color3( .9, .1, .1 )
-    spellMats[num] = m
-  }
-  return spellMats[num]
-}
-
-function addBlocksInSphere(scene, id, pos, radius) {
-  var loc = pos.map(Math.floor)
-  var rad = Math.ceil(radius)
-  for (var i=-rad; i<=rad; ++i) {
-    for (var j=-rad; j<=rad; ++j) {
-      for (var k=-rad; k<=rad; ++k) {
-        if (i*i + j*j + k*k <= radius*radius) {
-          game.addBlock( id, i+loc[0], j+loc[1], k+loc[2] )
-          if (id===0) {
-            addSmokeParticles(scene, [i+loc[0], j+loc[1], k+loc[2]], 5, 1, .8, .2, true)
-          }
-        }
-      }
-    }
-  }
-}
-
-function launchAlongCameraVector(e, impulse) {
-  var vec = game.getCameraVector()
-  vec3.normalize(vec, vec)
-  vec3.scale(vec, vec, impulse)
-  e.body.applyImpulse(vec)
-}
 
 
-// particle-related helpers
-// note that Babylon uses a Vector3 class that's unlike gl-vec3
-
-var babvec3 = BABYLON.Vector3
-var babcol4 = BABYLON.Color4
-
-function addSmokeParticles(scene, src, num, volume, size, duration, oneoff) {
-  // oneoff means emit num particles and stop, otherwise num is emitRate
-  var pool = oneoff ? num : num*duration*1.5
-  var particles = new BABYLON.ParticleSystem("p", pool, scene)
-  var s = volume/2   // half-width of volume to fill
-  
-  if (src.length) { // array, treat it as a static location
-    particles.emitter = new babvec3( src[0]+s, src[1]+s, src[2]+s)
-  } else { // otherwise assume it's a mesh to attach to
-    particles.emitter = src
-  }
-  particles.particleTexture = getSmokeTex(scene)
-  particles.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD
-
-  particles.color1 = new babcol4( .3, .3, .3, 1 )
-  particles.color2 = new babcol4( .5, .5, .5, .1 )
-  particles.colorDead = new babcol4( .6,.6,.6, 0)
-
-  particles.minEmitBox = new babvec3( -s,-s,-s )
-  particles.maxEmitBox = new babvec3(  s, s, s )
-  particles.minSize = size
-  particles.maxSize = size*1.5
-
-  particles.direction1 = new babvec3( -s, s,-s )
-  particles.direction2 = new babvec3(  s, s, s )
-  particles.minEmitPower = 2
-  particles.maxEmitPower = 4 
-
-  particles.minLifeTime = duration/2
-  particles.maxLifeTime = duration
-  particles.updateSpeed = 0.005
-  particles.gravity = new babvec3(0, 10, 0)
-
-  if (oneoff) {
-    particles.manualEmitCount = 10*num/particles.updateSpeed
-    particles.targetStopDuration = duration*3
-  } else {
-    particles.emitRate = num
-  }
-  particles.disposeOnStop = true
-  particles.start()
-  return particles
-}
-
-var smokeTex
-function getSmokeTex(scene) {
-  if (!smokeTex) smokeTex = new BABYLON.Texture("textures/particle_standard.png", scene)
-  return smokeTex.clone()
-}
 
 
-function addFireParticles(scene, mesh, yoff, rate, size, duration) {
-  var pool = rate*duration*1.5
-  var particles = new BABYLON.ParticleSystem("p", pool, scene)
-  particles.emitter = mesh
-  particles.particleTexture = getFireTex(scene)
-  particles.blendMode = BABYLON.ParticleSystem.BLENDMODE_ONEONE
-
-  particles.color1 = new babcol4( .8, .5, 0, 1 )
-  particles.color2 = new babcol4( .5, .2, 0, 1 )
-  particles.colorDead = new babcol4( .1,.1,.1, 0)
-
-  particles.minEmitBox = new babvec3( 0, yoff, 0 )
-  particles.maxEmitBox = new babvec3( 0, yoff, 0 )
-  particles.minSize = size
-  particles.maxSize = size*1.5
-
-  particles.direction1 = new babvec3( -1,   1, -1 )
-  particles.direction2 = new babvec3(  1, 1.5,  1 )
-  particles.minEmitPower = 2
-  particles.maxEmitPower = 3
-
-  particles.minLifeTime = duration/2
-  particles.maxLifeTime = duration
-  particles.updateSpeed = 0.005
-  particles.gravity = new babvec3(0, -20, 0)
-  particles.emitRate = rate
-  particles.disposeOnStop = true
-  particles.start()
-  return particles
-}
-
-var fireTex
-function getFireTex(scene) {
-  if (!fireTex) fireTex = new BABYLON.Texture("textures/particle_oneone.png", scene)
-  return fireTex.clone()
-}
-
-},{"./lib/mob":2,"./lib/shadows":3,"./lib/worldgen":4,"gl-vec3":16,"noa":38}],2:[function(require,module,exports){
+},{"./lib/mob":2,"./lib/particles":3,"./lib/projectile":4,"./lib/shadows":5,"./lib/worldgen":6,"gl-vec3":18,"noa":40}],2:[function(require,module,exports){
 'use strict';
 /* globals BABYLON */
 
@@ -392,7 +224,242 @@ function getMobMat(scene) {
 
 
 
-},{"gl-vec3":16}],3:[function(require,module,exports){
+},{"gl-vec3":18}],3:[function(require,module,exports){
+'use strict';
+/* globals BABYLON */
+
+module.exports = function(game) {
+  return makeParticleGenerator(game)
+}
+
+// remember that Babylon uses a Vector3 class that's unlike gl-vec3
+var babvec3 = BABYLON.Vector3
+var babcol4 = BABYLON.Color4
+
+
+/*
+ *    Generate a function to manage some Babylon.js particles
+*/
+
+
+function makeParticleGenerator(game) {
+  var scene = game.rendering.getScene()
+
+
+  return function(type, loc, off, volume,
+                   num, size, duration, oneoff) {
+
+    // oneoff means emit num particles and stop, otherwise num is emitRate
+    var pool = oneoff ? num : num*duration*1.5
+    var particles = new BABYLON.ParticleSystem('p', pool, scene)
+
+    if (loc.length) { // array, treat it as a static location
+      particles.emitter = new babvec3(loc[0], loc[1], loc[2])
+    } else { // otherwise assume it's a mesh to attach to
+      particles.emitter = loc
+    }
+
+    var s = volume/2   // half-width of volume to fill
+    particles.minEmitBox = new babvec3( off[0]-s, off[1]-s, off[2]-s )
+    particles.maxEmitBox = new babvec3( off[0]+s, off[1]+s, off[2]+s )
+    particles.minSize = size
+    particles.maxSize = size*1.5
+
+    // type-specific settings: type is 1 for smoke, 2 for fire
+    var url
+    if (type==1) {
+      
+      // smoke
+      url = 'textures/particle_standard.png'
+      particles.particleTexture = getTexture(game.rendering.getScene(), url)
+      particles.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD
+
+      particles.color1 =    new babcol4( .3, .3, .3,  1 )
+      particles.color2 =    new babcol4( .5, .5, .5, .1 )
+      particles.colorDead = new babcol4( .6, .6, .6,  0 )
+
+      particles.direction1 = new babvec3( -s, s,-s )
+      particles.direction2 = new babvec3(  s, s, s )
+      particles.minEmitPower = 2
+      particles.maxEmitPower = 4
+      particles.gravity = new babvec3(0, 10, 0)
+      
+    } else {
+      
+      // fire
+      url = 'textures/particle_oneone.png'
+      particles.particleTexture = getTexture(game.rendering.getScene(), url)
+      particles.blendMode = BABYLON.ParticleSystem.BLENDMODE_ONEONE
+
+      particles.color1 =    new babcol4( .8, .5,  0, 1 )
+      particles.color2 =    new babcol4( .5, .2,  0, 1 )
+      particles.colorDead = new babcol4( .1, .1, .1, 0 )
+
+      particles.direction1 = new babvec3( -1,   1, -1 )
+      particles.direction2 = new babvec3(  1, 1.5,  1 )
+      particles.minEmitPower = 4
+      particles.maxEmitPower = 5
+      particles.gravity = new babvec3(0, -20, 0)
+    }
+
+    particles.minLifeTime = duration/2
+    particles.maxLifeTime = duration
+    particles.updateSpeed = 0.005
+    
+
+    if (oneoff) {
+      particles.manualEmitCount = 10*num/particles.updateSpeed
+      particles.targetStopDuration = duration*3
+    } else {
+      particles.emitRate = num
+    }
+    particles.disposeOnStop = true
+    particles.start()
+    return particles    
+
+  }
+}
+
+/*
+ *    particle-related helpers
+*/ 
+
+// temporary ad-hoc material storage
+var mats = {}
+function getTexture(scene, url) {
+  if (!mats[url]) {
+    mats[url] = new BABYLON.Texture(url, scene)
+  }
+  return mats[url].clone()
+}
+
+
+},{}],4:[function(require,module,exports){
+'use strict';
+/* globals BABYLON */
+
+var vec3 = require('gl-vec3')
+
+module.exports = function(game, partAdder) {
+  return makeProjectileLauncher(game, partAdder)
+}
+
+
+/*
+ *    example "spells" that create entities on keypress
+*/
+
+
+function makeProjectileLauncher(game, particleAdder) {
+  var scene = game.rendering.getScene()
+  var mesh = BABYLON.Mesh.CreateSphere('p1', 3, 1, scene)
+  mesh.material = makeColorMat(scene, .1, .1, .1)
+  game.registry.registerMesh('projectile', mesh)
+
+
+  return function(spelltype, size, gravMult, friction, restitution, option) {
+    var s = size || 1    
+    var mesh = game.rendering.makeMeshInstance('projectile')
+    mesh.scaling.x = mesh.scaling.y = mesh.scaling.z = s
+    var scene = game.rendering.getScene()
+    var pos = game.getPlayerEyePosition()
+    var dat = { counter:0 }
+    // usage: entities.add( pos, w, h, mesh, meshOffset, data, doPhysics,
+    //                      collideTerrain, collideEntities )
+    var e = game.entities.add( pos, s, s, mesh, [s/2,s/2,s/2], 
+                              dat, true, true, false )
+    // adjust physics properties thusly
+    e.body.gravityMultiplier = gravMult
+    e.body.friction = friction
+    e.body.restitution = restitution
+
+    e.on('collideTerrain', function(impulse) {
+      onCollide(game, e, spelltype, option)
+    })
+    e.on('tick', function(dt) {
+      onTick(game, e, spelltype, dt)
+    })
+
+    // flashy particle trail dependent on type
+    var off = (spelltype===1) ? [0,0,0] : [0,s/2,0]
+    var vol = (spelltype===1) ? s/2 : 0
+    e.data.particles = particleAdder( spelltype, mesh, off, vol,
+                                     400, .2, .3, false)
+    e.data.particleAdder = particleAdder
+
+
+    launchAlongCameraVector(game, e, 10)
+  }
+
+
+}
+
+/*
+ *    Projectile tick/collide fcns
+*/ 
+
+function onCollide(game, entity, spelltype, option) {
+  if (spelltype==2) return
+  addBlocksInSphere(game, option, entity.getPosition(), 2.3, 
+                    entity.data.particleAdder)
+  entity.data.particles.stop()
+  game.entities.remove(entity)
+}
+
+function onTick(game, entity, spelltype, dt) {
+  if (spelltype==1) return
+  entity.data.counter += dt
+  var ct = entity.data.counter
+  //  var blinker = (ct/250>>0) % 2
+  //  entity.mesh.material.diffuseColor.r = (blinker) ? 1 : 0.1
+  if (ct > 2500) { // blow up
+    addBlocksInSphere(game, 0, entity.getPosition(), 2.75, 
+                      entity.data.particleAdder)
+    entity.data.particles.stop()
+    game.entities.remove(entity)
+  }
+}
+
+
+
+
+/*
+ *    Helper functions
+*/ 
+
+function makeColorMat(scene, r, g, b) {
+  var m = new BABYLON.StandardMaterial('m',scene)
+  m.diffuseColor = new BABYLON.Color3(r,g,b)
+  return m
+}
+
+function launchAlongCameraVector(game, entity, impulse) {
+  var vec = game.getCameraVector()
+  vec3.normalize(vec, vec)
+  vec3.scale(vec, vec, impulse)
+  entity.body.applyImpulse(vec)
+}
+
+function addBlocksInSphere(game, id, pos, radius, particleAdder) {
+  var scene = game.rendering.getScene()
+  var loc = pos.map(Math.floor)
+  var rad = Math.ceil(radius)
+  for (var i=-rad; i<=rad; ++i) {
+    for (var j=-rad; j<=rad; ++j) {
+      for (var k=-rad; k<=rad; ++k) {
+        if (i*i + j*j + k*k <= radius*radius) {
+          game.addBlock( id, i+loc[0], j+loc[1], k+loc[2] )
+          if (id===0 && particleAdder) {
+            var pos = [i+loc[0], j+loc[1], k+loc[2]]
+            particleAdder(1, pos, [0.5, 0.5, 0.5], 1, 5, .8, .2, true)
+          }
+        }
+      }
+    }
+  }
+}
+
+},{"gl-vec3":18}],5:[function(require,module,exports){
 'use strict';
 /* globals BABYLON */
 
@@ -451,7 +518,7 @@ function tickShadows(game) {
 }
 
 
-},{}],4:[function(require,module,exports){
+},{}],6:[function(require,module,exports){
 'use strict';
 
 var SimplexNoise = require('simplex-noise')
@@ -495,7 +562,7 @@ function generate( noa, chunk, x, y, z ) {
   }
 }
 
-},{"simplex-noise":185}],5:[function(require,module,exports){
+},{"simplex-noise":187}],7:[function(require,module,exports){
 module.exports = add;
 
 /**
@@ -512,7 +579,7 @@ function add(out, a, b) {
     out[2] = a[2] + b[2]
     return out
 }
-},{}],6:[function(require,module,exports){
+},{}],8:[function(require,module,exports){
 module.exports = angle
 
 var fromValues = require('./fromValues')
@@ -541,7 +608,7 @@ function angle(a, b) {
     }     
 }
 
-},{"./dot":13,"./fromValues":15,"./normalize":24}],7:[function(require,module,exports){
+},{"./dot":15,"./fromValues":17,"./normalize":26}],9:[function(require,module,exports){
 module.exports = clone;
 
 /**
@@ -557,7 +624,7 @@ function clone(a) {
     out[2] = a[2]
     return out
 }
-},{}],8:[function(require,module,exports){
+},{}],10:[function(require,module,exports){
 module.exports = copy;
 
 /**
@@ -573,7 +640,7 @@ function copy(out, a) {
     out[2] = a[2]
     return out
 }
-},{}],9:[function(require,module,exports){
+},{}],11:[function(require,module,exports){
 module.exports = create;
 
 /**
@@ -588,7 +655,7 @@ function create() {
     out[2] = 0
     return out
 }
-},{}],10:[function(require,module,exports){
+},{}],12:[function(require,module,exports){
 module.exports = cross;
 
 /**
@@ -608,7 +675,7 @@ function cross(out, a, b) {
     out[2] = ax * by - ay * bx
     return out
 }
-},{}],11:[function(require,module,exports){
+},{}],13:[function(require,module,exports){
 module.exports = distance;
 
 /**
@@ -624,7 +691,7 @@ function distance(a, b) {
         z = b[2] - a[2]
     return Math.sqrt(x*x + y*y + z*z)
 }
-},{}],12:[function(require,module,exports){
+},{}],14:[function(require,module,exports){
 module.exports = divide;
 
 /**
@@ -641,7 +708,7 @@ function divide(out, a, b) {
     out[2] = a[2] / b[2]
     return out
 }
-},{}],13:[function(require,module,exports){
+},{}],15:[function(require,module,exports){
 module.exports = dot;
 
 /**
@@ -654,7 +721,7 @@ module.exports = dot;
 function dot(a, b) {
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
-},{}],14:[function(require,module,exports){
+},{}],16:[function(require,module,exports){
 module.exports = forEach;
 
 var vec = require('./create')()
@@ -699,7 +766,7 @@ function forEach(a, stride, offset, count, fn, arg) {
         
         return a
 }
-},{"./create":9}],15:[function(require,module,exports){
+},{"./create":11}],17:[function(require,module,exports){
 module.exports = fromValues;
 
 /**
@@ -717,7 +784,7 @@ function fromValues(x, y, z) {
     out[2] = z
     return out
 }
-},{}],16:[function(require,module,exports){
+},{}],18:[function(require,module,exports){
 module.exports = {
   create: require('./create')
   , clone: require('./clone')
@@ -752,7 +819,7 @@ module.exports = {
   , rotateZ: require('./rotateZ')
   , forEach: require('./forEach')
 }
-},{"./add":5,"./angle":6,"./clone":7,"./copy":8,"./create":9,"./cross":10,"./distance":11,"./divide":12,"./dot":13,"./forEach":14,"./fromValues":15,"./inverse":17,"./length":18,"./lerp":19,"./max":20,"./min":21,"./multiply":22,"./negate":23,"./normalize":24,"./random":25,"./rotateX":26,"./rotateY":27,"./rotateZ":28,"./scale":29,"./scaleAndAdd":30,"./set":31,"./squaredDistance":32,"./squaredLength":33,"./subtract":34,"./transformMat3":35,"./transformMat4":36,"./transformQuat":37}],17:[function(require,module,exports){
+},{"./add":7,"./angle":8,"./clone":9,"./copy":10,"./create":11,"./cross":12,"./distance":13,"./divide":14,"./dot":15,"./forEach":16,"./fromValues":17,"./inverse":19,"./length":20,"./lerp":21,"./max":22,"./min":23,"./multiply":24,"./negate":25,"./normalize":26,"./random":27,"./rotateX":28,"./rotateY":29,"./rotateZ":30,"./scale":31,"./scaleAndAdd":32,"./set":33,"./squaredDistance":34,"./squaredLength":35,"./subtract":36,"./transformMat3":37,"./transformMat4":38,"./transformQuat":39}],19:[function(require,module,exports){
 module.exports = inverse;
 
 /**
@@ -768,7 +835,7 @@ function inverse(out, a) {
   out[2] = 1.0 / a[2]
   return out
 }
-},{}],18:[function(require,module,exports){
+},{}],20:[function(require,module,exports){
 module.exports = length;
 
 /**
@@ -783,7 +850,7 @@ function length(a) {
         z = a[2]
     return Math.sqrt(x*x + y*y + z*z)
 }
-},{}],19:[function(require,module,exports){
+},{}],21:[function(require,module,exports){
 module.exports = lerp;
 
 /**
@@ -804,7 +871,7 @@ function lerp(out, a, b, t) {
     out[2] = az + t * (b[2] - az)
     return out
 }
-},{}],20:[function(require,module,exports){
+},{}],22:[function(require,module,exports){
 module.exports = max;
 
 /**
@@ -821,7 +888,7 @@ function max(out, a, b) {
     out[2] = Math.max(a[2], b[2])
     return out
 }
-},{}],21:[function(require,module,exports){
+},{}],23:[function(require,module,exports){
 module.exports = min;
 
 /**
@@ -838,7 +905,7 @@ function min(out, a, b) {
     out[2] = Math.min(a[2], b[2])
     return out
 }
-},{}],22:[function(require,module,exports){
+},{}],24:[function(require,module,exports){
 module.exports = multiply;
 
 /**
@@ -855,7 +922,7 @@ function multiply(out, a, b) {
     out[2] = a[2] * b[2]
     return out
 }
-},{}],23:[function(require,module,exports){
+},{}],25:[function(require,module,exports){
 module.exports = negate;
 
 /**
@@ -871,7 +938,7 @@ function negate(out, a) {
     out[2] = -a[2]
     return out
 }
-},{}],24:[function(require,module,exports){
+},{}],26:[function(require,module,exports){
 module.exports = normalize;
 
 /**
@@ -895,7 +962,7 @@ function normalize(out, a) {
     }
     return out
 }
-},{}],25:[function(require,module,exports){
+},{}],27:[function(require,module,exports){
 module.exports = random;
 
 /**
@@ -917,7 +984,7 @@ function random(out, scale) {
     out[2] = z * scale
     return out
 }
-},{}],26:[function(require,module,exports){
+},{}],28:[function(require,module,exports){
 module.exports = rotateX;
 
 /**
@@ -947,7 +1014,7 @@ function rotateX(out, a, b, c){
 
     return out
 }
-},{}],27:[function(require,module,exports){
+},{}],29:[function(require,module,exports){
 module.exports = rotateY;
 
 /**
@@ -977,7 +1044,7 @@ function rotateY(out, a, b, c){
   
     return out
 }
-},{}],28:[function(require,module,exports){
+},{}],30:[function(require,module,exports){
 module.exports = rotateZ;
 
 /**
@@ -1007,7 +1074,7 @@ function rotateZ(out, a, b, c){
   
     return out
 }
-},{}],29:[function(require,module,exports){
+},{}],31:[function(require,module,exports){
 module.exports = scale;
 
 /**
@@ -1024,7 +1091,7 @@ function scale(out, a, b) {
     out[2] = a[2] * b
     return out
 }
-},{}],30:[function(require,module,exports){
+},{}],32:[function(require,module,exports){
 module.exports = scaleAndAdd;
 
 /**
@@ -1042,7 +1109,7 @@ function scaleAndAdd(out, a, b, scale) {
     out[2] = a[2] + (b[2] * scale)
     return out
 }
-},{}],31:[function(require,module,exports){
+},{}],33:[function(require,module,exports){
 module.exports = set;
 
 /**
@@ -1060,7 +1127,7 @@ function set(out, x, y, z) {
     out[2] = z
     return out
 }
-},{}],32:[function(require,module,exports){
+},{}],34:[function(require,module,exports){
 module.exports = squaredDistance;
 
 /**
@@ -1076,7 +1143,7 @@ function squaredDistance(a, b) {
         z = b[2] - a[2]
     return x*x + y*y + z*z
 }
-},{}],33:[function(require,module,exports){
+},{}],35:[function(require,module,exports){
 module.exports = squaredLength;
 
 /**
@@ -1091,7 +1158,7 @@ function squaredLength(a) {
         z = a[2]
     return x*x + y*y + z*z
 }
-},{}],34:[function(require,module,exports){
+},{}],36:[function(require,module,exports){
 module.exports = subtract;
 
 /**
@@ -1108,7 +1175,7 @@ function subtract(out, a, b) {
     out[2] = a[2] - b[2]
     return out
 }
-},{}],35:[function(require,module,exports){
+},{}],37:[function(require,module,exports){
 module.exports = transformMat3;
 
 /**
@@ -1126,7 +1193,7 @@ function transformMat3(out, a, m) {
     out[2] = x * m[2] + y * m[5] + z * m[8]
     return out
 }
-},{}],36:[function(require,module,exports){
+},{}],38:[function(require,module,exports){
 module.exports = transformMat4;
 
 /**
@@ -1147,7 +1214,7 @@ function transformMat4(out, a, m) {
     out[2] = (m[2] * x + m[6] * y + m[10] * z + m[14]) / w
     return out
 }
-},{}],37:[function(require,module,exports){
+},{}],39:[function(require,module,exports){
 module.exports = transformQuat;
 
 /**
@@ -1176,7 +1243,7 @@ function transformQuat(out, a, q) {
     out[2] = iz * qw + iw * -qz + ix * -qy - iy * -qx
     return out
 }
-},{}],38:[function(require,module,exports){
+},{}],40:[function(require,module,exports){
 
 var aabb = require('aabb-3d')
 var vec3 = require('gl-vec3')
@@ -1241,6 +1308,16 @@ function Engine(opts) {
 
   // controls - hooks up input events to physics of player, etc.
   this.controls = createControls( this, opts )
+  // accessor to let controls read/write camera rotation
+  this.controls.setCameraAccessor({
+    renderingRef: this.rendering,
+    getRotationXY: function() {
+      return this.renderingRef.getCameraRotation()
+    },
+    setRotationXY: function(x,y) {
+      this.renderingRef.setCameraRotation(x,y)
+    }
+  })
 
   // entity manager
   this.entities = createEntities( this, opts )
@@ -1256,6 +1333,9 @@ function Engine(opts) {
   )
   this.playerEntity.body.gravityMultiplier = 2 // less floaty
   this.playerEntity.body.autoStep = opts.playerAutoStep // auto step onto blocks
+  if (opts.playerAutoStep) {
+    this.playerEntity.body.onStep = this.entities._onPlayerAutoStep.bind(this.entities)
+  }
   this.controls.setTarget( this.playerEntity.body )
 
 
@@ -1265,18 +1345,6 @@ function Engine(opts) {
   this._traceWorldRay = raycast.bind(null, this.world)
 
 
-  // ad-hoc stuff to set up player and camera
-  var cam = this.rendering.getCameraHolder()
-  var accessor = {
-    getRotationXY: function() {
-      return [ cam.rotation.x, cam.rotation.y ]
-    },
-    setRotationXY: function(x,y) {
-      cam.rotation.x = x
-      cam.rotation.y = y
-    }
-  }
-  this.controls.setCameraAccessor( accessor )
 
 
 
@@ -1380,11 +1448,9 @@ Engine.prototype.getPlayerEyePosition = function() {
 }
 
 Engine.prototype.getCameraVector = function() {
-  var crot = this.rendering.getCameraHolder().rotation
-  var cvec = vec3.fromValues( 0,0,1 ) // +z is forward direction
-  vec3.rotateX( cvec, cvec, [0,0,0], crot.x )
-  vec3.rotateY( cvec, cvec, [0,0,0], crot.y )
-  return cvec
+  // rendering works with babylon's xyz vectors
+  var v = this.rendering.getCameraVector()
+  return vec3.fromValues( v.x, v.y, v.z )
 }
 
 // Determine which block if any is targeted and within range
@@ -1441,7 +1507,7 @@ Engine.prototype.setPlayerMesh = function(mesh, meshOffset) {
 
 
 
-},{"./lib/container":39,"./lib/controls":40,"./lib/entities":41,"./lib/inputs":42,"./lib/mesher":43,"./lib/physics":44,"./lib/registry":45,"./lib/rendering":46,"./lib/world":47,"aabb-3d":48,"events":190,"extend":60,"gl-vec3":85,"inherits":107,"ndarray":108,"voxel-raycast":184}],39:[function(require,module,exports){
+},{"./lib/container":41,"./lib/controls":42,"./lib/entities":43,"./lib/inputs":44,"./lib/mesher":45,"./lib/physics":46,"./lib/registry":47,"./lib/rendering":48,"./lib/world":49,"aabb-3d":50,"events":192,"extend":62,"gl-vec3":87,"inherits":109,"ndarray":110,"voxel-raycast":186}],41:[function(require,module,exports){
 'use strict';
 
 var extend = require('extend')
@@ -1559,7 +1625,7 @@ function getOrCreateCanvas(el) {
 
 
 
-},{"events":190,"extend":60,"game-shell":73,"inherits":107}],40:[function(require,module,exports){
+},{"events":192,"extend":62,"game-shell":75,"inherits":109}],42:[function(require,module,exports){
 'use strict';
 
 var createController = require('voxel-fps-controller')
@@ -1592,7 +1658,7 @@ function makeControls(noa, opts) {
 
 
 
-},{"extend":60,"voxel-fps-controller":110}],41:[function(require,module,exports){
+},{"extend":62,"voxel-fps-controller":112}],43:[function(require,module,exports){
 'use strict';
 
 var extend = require('extend')
@@ -1623,6 +1689,9 @@ function EntityManager(noa, opts) {
 
   this.entities = []
   this._toRemove = []
+
+  // internals
+  this._lerpPlayerMeshFrames = 0
 }
 var proto = EntityManager.prototype
 
@@ -1655,8 +1724,14 @@ proto.updateEntitiesForRender = function(dt) {
       vec3.add(pos, ent.body.aabb.base, ent.meshOffset)
       vec3.scaleAndAdd(pos, pos, ent.body.velocity, dt/1000)
       ent.mesh.position.x = pos[0]
-      ent.mesh.position.y = pos[1]
       ent.mesh.position.z = pos[2]
+      if (ent==this.noa.playerEntity && this._lerpPlayerMeshFrames) {
+        // soften player mesh movement for a few frames after autosteps
+        ent.mesh.position.y += .4 * (pos[1] - ent.mesh.position.y)
+        this._lerpPlayerMeshFrames--
+      } else {
+        ent.mesh.position.y = pos[1]
+      }
     }
   }
 }
@@ -1679,10 +1754,10 @@ proto.isTerrainBlocked = function(x,y,z) {
 // Add a new entity to be managed.
 // shape modeled only as an AABB, 'position' at center of bottom face.
 // meshCreateFcn is of signature 'function(scene)'
-proto.add = function( position, width, height, // required
-                                         mesh, meshOffset, 
-                                         data, doPhysics,
-                                         collideTerrain, collideEntities ) {
+proto.add = function(position, width, height, // required
+                      mesh, meshOffset, 
+                      data, doPhysics,
+                      collideTerrain, collideEntities ) {
   // bounding box
   var bb = new aabb([position[0]-width/2, position[1], position[2]-width/2],
                     [width, height, width])
@@ -1702,6 +1777,10 @@ proto.remove = function(ent) {
   if (this._toRemove.indexOf(ent) == -1) this._toRemove.push(ent);
 }
 
+proto._onPlayerAutoStep = function() {
+  // When player entity, autosteps, lerp its mesh position for a few frames
+  this._lerpPlayerMeshFrames = 4
+}
 
 /*
  *  INTERNALS
@@ -1791,7 +1870,7 @@ Entity.prototype.getPosition = function() {
 
 
 
-},{"aabb-3d":48,"box-intersect":50,"events":190,"extend":60,"gl-vec3":85,"inherits":107}],42:[function(require,module,exports){
+},{"aabb-3d":50,"box-intersect":52,"events":192,"extend":62,"gl-vec3":87,"inherits":109}],44:[function(require,module,exports){
 'use strict';
 
 var createInputs = require('game-inputs')
@@ -1836,7 +1915,7 @@ function makeInputs(noa, opts, element) {
 
 
 
-},{"extend":60,"game-inputs":61}],43:[function(require,module,exports){
+},{"extend":62,"game-inputs":63}],45:[function(require,module,exports){
 'use strict';
 
 var extend = require('extend')
@@ -2165,7 +2244,7 @@ function pushAOColor( colors, baseCol, ao, aoVals ) {
 
 
 
-},{"extend":60,"ndarray":108}],44:[function(require,module,exports){
+},{"extend":62,"ndarray":110}],46:[function(require,module,exports){
 'use strict';
 
 var createPhysics = require('voxel-physics-engine')
@@ -2200,7 +2279,7 @@ function makePhysics(noa, opts) {
 
 
 
-},{"extend":60,"voxel-physics-engine":145}],45:[function(require,module,exports){
+},{"extend":62,"voxel-physics-engine":147}],47:[function(require,module,exports){
 'use strict';
 
 var extend = require('extend')
@@ -2303,7 +2382,14 @@ Registry.prototype.registerMesh = function(name, mesh) {
   var id = this._meshIDs[name] || this._meshes.length
   this._meshIDs[name] = id
   this._meshes[id] = mesh
+  // disable mesh so original doesn't stay in scene
+  mesh.setEnabled(false)
   return id
+}
+
+Registry.prototype._getMesh = function(name) {
+  var id = this._meshIDs[name]
+  return this._meshes[id]
 }
 
 
@@ -2344,11 +2430,12 @@ Registry.prototype.getMaterialTexture = function(matID) {
 
 
 
-},{"extend":60}],46:[function(require,module,exports){
+},{"extend":62}],48:[function(require,module,exports){
 'use strict';
 /* globals BABYLON */
 
 var extend = require('extend')
+var glvec3 = require('gl-vec3')
 
 // For now, assume Babylon.js has been imported into the global space already
 if (!BABYLON) {
@@ -2359,7 +2446,7 @@ module.exports = function(noa, opts, canvas) {
   return new Rendering(noa, opts, canvas)
 }
 
-var vec3 = BABYLON.Vector3
+var vec3 = BABYLON.Vector3 // not a gl-vec3, in this module only!!
 var col3 = BABYLON.Color3
 var halfPi = Math.PI/2
 window.BABYLON = BABYLON
@@ -2383,7 +2470,8 @@ var defaults = {
 function Rendering(noa, _opts, canvas) {
   this.noa = noa
   var opts = extend( {}, defaults, _opts )
-  this._zoomLevel = opts.minCameraZoom
+  this._zoomDistance = opts.minCameraZoom
+  this._zoomTarget = opts.minCameraZoom
   this._zoomMin = opts.minCameraZoom
   this._zoomMax = opts.maxCameraZoom
   this._zoomStep = opts.cameraZoomStep
@@ -2412,14 +2500,13 @@ function initScene(self, canvas, opts) {
   if (!BABYLON) throw new Error('BABYLON.js engine not found!')
   // init internal properties
   self._engine = new BABYLON.Engine(canvas, opts.antiAlias)
-  self._scene =     new BABYLON.Scene( self._engine )
-  // camera, and mesh holder to contain it
-  self._cameraHolder = new BABYLON.Mesh('ch',self._scene)
+  self._scene =  new BABYLON.Scene( self._engine )
+  // camera and empty mesh to hold camera rotations
+  self._rotationHolder = new BABYLON.Mesh('',self._scene)
   self._camera = new BABYLON.FreeCamera('c', new vec3(0,0,0), self._scene)
-  self._camera.minZ = .1 // distance from eyes to top of head
-  self._camera.parent = self._cameraHolder
-  self._light = new BABYLON.HemisphericLight('l', new vec3(0.1,1,0.3), self._scene )
+  self._camera.minZ = .01
   // apply some defaults
+  self._light = new BABYLON.HemisphericLight('l', new vec3(0.1,1,0.3), self._scene )
   function arrToColor(a) { return new col3( a[0], a[1], a[2] )  }
   self._scene.clearColor =  arrToColor( opts.clearColor )
   self._scene.ambientColor= arrToColor( opts.ambientColor )
@@ -2441,6 +2528,7 @@ Rendering.prototype.getScene = function() {
 
 // tick function manages deferred meshing
 Rendering.prototype.tick = function(dt) {
+  findMaxZoomDistance(this)
   doDeferredMeshing(this)
 }
 
@@ -2460,7 +2548,7 @@ Rendering.prototype.highlightBlockFace = function(show, posArr, normArr) {
   if (show) {
     var pos=[]
     for (var i=0; i<3; ++i) {
-      pos[i] = posArr[i] + .5 + (.501 * normArr[i])
+      pos[i] = posArr[i] + .5 + (.505 * normArr[i])
     }
     m.position.copyFromFloats( pos[0], pos[1], pos[2] ) 
     m.rotation.x = (normArr[1]) ? halfPi : 0
@@ -2470,39 +2558,31 @@ Rendering.prototype.highlightBlockFace = function(show, posArr, normArr) {
 }
 
 
-Rendering.prototype.getCameraHolder = function() {
-  // make/return a container object to hold/move/rotate the camera
-  return this._cameraHolder
+Rendering.prototype.getCameraVector = function() {
+  var vec = new vec3(0,0,1)
+  return vec3.TransformCoordinates(vec, this._rotationHolder.getWorldMatrix())
+}
+Rendering.prototype.getCameraRotation = function() {
+  var rot = this._rotationHolder.rotation
+  return [ rot.x, rot.y ]
+}
+Rendering.prototype.setCameraRotation = function(x,y) {
+  var rot = this._rotationHolder.rotation
+  rot.x = x
+  rot.y = y
 }
 
 // change 'zoom' level based on scroll inputs
 Rendering.prototype.zoomInOrOut = function(dir) {
   if (!dir) return
-  var z = this._zoomLevel
+  var z = this._zoomTarget
   z += (dir>0) ? this._zoomStep : -this._zoomStep
   if (z<this._zoomMin) z = this._zoomMin
   if (z>this._zoomMax) z = this._zoomMax
-  this._zoomLevel = z
+  this._zoomTarget = z
 }
 
 
-
-
-function updateCamera(self) {
-  // lerp camera towards position of player's mesh (not physics body position)
-  var height = 0.4 * self.noa.playerEntity.bb.vec[1]
-  var cpos = self._cameraHolder.position
-  var ppos = self.noa.playerEntity.mesh.position
-  var speed = 1
-  cpos.x += speed * (ppos.x-cpos.x)
-  cpos.y += speed * (ppos.y-cpos.y + height)
-  cpos.z += speed * (ppos.z-cpos.z)
-  // TODO: change the way parenting works so I can lerp camera without temporal aliasing)
-  
-  // 'zooms' camera by lerping camera.z backwards in local coords
-  var zoom = self._zoomLevel
-  self._camera.position.z += self._zoomSpeed * (-zoom - self._camera.position.z)
-}
 
 /*
  *   Entity sprite/mesh management
@@ -2523,7 +2603,10 @@ Rendering.prototype.makeEntitySprite = function(sheetname, cell) {
   return sprite
 }
 
-
+Rendering.prototype.makeMeshInstance = function(meshname) {
+  var mesh = this.noa.registry._getMesh(meshname)
+  return mesh.createInstance('')
+}
 
 
 
@@ -2594,6 +2677,45 @@ function meshChunk(self, chunk) {
   var colGetter = noa.registry.getMaterialColor.bind(noa.registry)
   // returns an array of mesher#Submesh
   return noa.mesher.meshChunk( chunk, matGetter, colGetter, aovals )
+}
+
+
+// zoom/camera related internals
+
+function getMeshEyePosition(self) {
+  // eye position relative to player mesh (not physics body)
+  var pos = self.noa.playerEntity.mesh.position.clone() // mesh center
+  pos.y += .4 * self.noa.playerEntity.bb.vec[1] // center+.4*height
+  return pos
+}
+
+function findMaxZoomDistance(self) {
+  // pick backwards from eye position to camera zoom depth
+  var pos = getMeshEyePosition(self)
+  var cam = self.getCameraVector().scaleInPlace(-1)
+  // need gl-vec3 vectors to pass to noa#pick
+  var vpos = glvec3.fromValues(pos.x, pos.y, pos.z)
+  var vcam = glvec3.fromValues(cam.x, cam.y, cam.z)
+  var result = self.noa.pick(vpos, vcam, self._zoomTarget)
+  var z = self._zoomTarget
+  if (result) {
+    var dist = glvec3.distance( vpos, result.position )
+    dist -= 0.2 // slop to cut down on seeing through floors
+    z = Math.min(dist, self._zoomTarget)
+  }
+  self._zoomDistance += self._zoomSpeed * (z-self._zoomDistance)
+}
+
+function updateCamera(self) {
+  // vecs for camera position and camera target behind and in front of player mesh
+  var pos = getMeshEyePosition(self)
+  var cam = self.getCameraVector()
+  // camera pos target = eyePosition - cameraVec * zoomDistance
+  var cpos = pos.subtract( cam.scale(self._zoomDistance) )
+  var tgt = pos.add( cam.scale(.1) )
+  // lerp actual camera position/target towards values
+  self._camera.position.copyFrom(cpos)
+  self._camera.setTarget(tgt)
 }
 
 
@@ -2726,7 +2848,7 @@ function getMultiMaterial( rendering ) {
 
 
 
-},{"extend":60}],47:[function(require,module,exports){
+},{"extend":62,"gl-vec3":87}],49:[function(require,module,exports){
 'use strict';
 
 var extend = require('extend')
@@ -2965,7 +3087,7 @@ function defaultGenerator( chunk, x, y, z ) {
 
 
 
-},{"events":190,"extend":60,"inherits":107,"ndarray":108}],48:[function(require,module,exports){
+},{"events":192,"extend":62,"inherits":109,"ndarray":110}],50:[function(require,module,exports){
 module.exports = AABB
 
 var vec3 = require('gl-matrix').vec3
@@ -3082,7 +3204,7 @@ proto.union = function(aabb) {
 
 
 
-},{"gl-matrix":49}],49:[function(require,module,exports){
+},{"gl-matrix":51}],51:[function(require,module,exports){
 /**
  * @fileoverview gl-matrix - High performance matrix and vector operations
  * @author Brandon Jones
@@ -7332,7 +7454,7 @@ if(typeof(exports) !== 'undefined') {
   })(shim.exports);
 })(this);
 
-},{}],50:[function(require,module,exports){
+},{}],52:[function(require,module,exports){
 'use strict'
 
 module.exports = boxIntersectWrapper
@@ -7471,7 +7593,7 @@ function boxIntersectWrapper(arg0, arg1, arg2) {
       throw new Error('box-intersect: Invalid arguments')
   }
 }
-},{"./lib/intersect":52,"./lib/sweep":56,"typedarray-pool":59}],51:[function(require,module,exports){
+},{"./lib/intersect":54,"./lib/sweep":58,"typedarray-pool":61}],53:[function(require,module,exports){
 'use strict'
 
 var DIMENSION   = 'd'
@@ -7616,7 +7738,7 @@ function bruteForcePlanner(full) {
 
 exports.partial = bruteForcePlanner(false)
 exports.full    = bruteForcePlanner(true)
-},{}],52:[function(require,module,exports){
+},{}],54:[function(require,module,exports){
 'use strict'
 
 module.exports = boxIntersectIter
@@ -8111,7 +8233,7 @@ function boxIntersectIter(
     }
   }
 }
-},{"./brute":51,"./median":53,"./partition":54,"./sweep":56,"bit-twiddle":57,"typedarray-pool":59}],53:[function(require,module,exports){
+},{"./brute":53,"./median":55,"./partition":56,"./sweep":58,"bit-twiddle":59,"typedarray-pool":61}],55:[function(require,module,exports){
 'use strict'
 
 module.exports = findMedian
@@ -8254,7 +8376,7 @@ function findMedian(d, axis, start, end, boxes, ids) {
     start, mid, boxes, ids,
     boxes[elemSize*mid+axis])
 }
-},{"./partition":54}],54:[function(require,module,exports){
+},{"./partition":56}],56:[function(require,module,exports){
 'use strict'
 
 module.exports = genPartition
@@ -8275,7 +8397,7 @@ function genPartition(predicate, args) {
         .replace('$', predicate))
   return Function.apply(void 0, fargs)
 }
-},{}],55:[function(require,module,exports){
+},{}],57:[function(require,module,exports){
 'use strict';
 
 //This code is extracted from ndarray-sort
@@ -8512,7 +8634,7 @@ function quickSort(left, right, data) {
     quickSort(less, great, data);
   }
 }
-},{}],56:[function(require,module,exports){
+},{}],58:[function(require,module,exports){
 'use strict'
 
 module.exports = {
@@ -8947,7 +9069,7 @@ red_loop:
     }
   }
 }
-},{"./sort":55,"bit-twiddle":57,"typedarray-pool":59}],57:[function(require,module,exports){
+},{"./sort":57,"bit-twiddle":59,"typedarray-pool":61}],59:[function(require,module,exports){
 /**
  * Bit twiddling hacks for JavaScript.
  *
@@ -9153,7 +9275,7 @@ exports.nextCombination = function(v) {
 }
 
 
-},{}],58:[function(require,module,exports){
+},{}],60:[function(require,module,exports){
 "use strict"
 
 function dupe_array(count, value, i) {
@@ -9203,7 +9325,7 @@ function dupe(count, value) {
 }
 
 module.exports = dupe
-},{}],59:[function(require,module,exports){
+},{}],61:[function(require,module,exports){
 (function (global,Buffer){
 'use strict'
 
@@ -9420,7 +9542,7 @@ exports.clearCache = function clearCache() {
   }
 }
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {},require("buffer").Buffer)
-},{"bit-twiddle":57,"buffer":186,"dup":58}],60:[function(require,module,exports){
+},{"bit-twiddle":59,"buffer":188,"dup":60}],62:[function(require,module,exports){
 var hasOwn = Object.prototype.hasOwnProperty;
 var toString = Object.prototype.toString;
 var undefined;
@@ -9503,7 +9625,7 @@ module.exports = function extend() {
 };
 
 
-},{}],61:[function(require,module,exports){
+},{}],63:[function(require,module,exports){
 'use strict';
 
 var vkey = require('vkey')
@@ -9730,7 +9852,7 @@ function XOR(a,b) {
 
 
 
-},{"./lib/mousewheel-polyfill.js":62,"events":190,"vkey":63}],62:[function(require,module,exports){
+},{"./lib/mousewheel-polyfill.js":64,"events":192,"vkey":65}],64:[function(require,module,exports){
 //Adapted from here: https://developer.mozilla.org/en-US/docs/Web/Reference/Events/wheel?redirectlocale=en-US&redirectslug=DOM%2FMozilla_event_reference%2Fwheel
 
 var prefix = "", _addEventListener, onwheel, support;
@@ -9790,7 +9912,7 @@ module.exports = function( elem, callback, useCapture ) {
     _addWheelListener( elem, "MozMousePixelScroll", callback, useCapture );
   }
 };
-},{}],63:[function(require,module,exports){
+},{}],65:[function(require,module,exports){
 var ua = typeof window !== 'undefined' ? window.navigator.userAgent : ''
   , isOSX = /OS X/.test(ua)
   , isOpera = /Opera/.test(ua)
@@ -9928,7 +10050,7 @@ for(i = 112; i < 136; ++i) {
   output[i] = 'F'+(i-111)
 }
 
-},{}],64:[function(require,module,exports){
+},{}],66:[function(require,module,exports){
 if(typeof window.performance === "object") {
   if(window.performance.now) {
     module.exports = function() { return window.performance.now() }
@@ -9941,9 +10063,9 @@ if(typeof window.performance === "object") {
   module.exports = function() { return (new Date()).getTime() }
 }
 
-},{}],65:[function(require,module,exports){
-module.exports=require(62)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/game-inputs/lib/mousewheel-polyfill.js":62}],66:[function(require,module,exports){
+},{}],67:[function(require,module,exports){
+module.exports=require(64)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/game-inputs/lib/mousewheel-polyfill.js":64}],68:[function(require,module,exports){
 // http://paulirish.com/2011/requestanimationframe-for-smart-animating/
 // http://my.opera.com/emoller/blog/2011/12/20/requestanimationframe-for-smart-er-animating
  
@@ -9973,7 +10095,7 @@ if (!window.cancelAnimationFrame)
         clearTimeout(id);
     };
 
-},{}],67:[function(require,module,exports){
+},{}],69:[function(require,module,exports){
 "use strict"
 
 function compileSearch(funcName, predicate, reversed, extraArgs, useNdarray, earlyOut) {
@@ -10035,7 +10157,7 @@ module.exports = {
   eq: compileBoundsSearch("-", true, "EQ", true)
 }
 
-},{}],68:[function(require,module,exports){
+},{}],70:[function(require,module,exports){
 /*!
   * domready (c) Dustin Diaz 2014 - License MIT
   */
@@ -10067,7 +10189,7 @@ module.exports = {
 
 });
 
-},{}],69:[function(require,module,exports){
+},{}],71:[function(require,module,exports){
 "use strict"
 
 function invert(hash) {
@@ -10081,7 +10203,7 @@ function invert(hash) {
 }
 
 module.exports = invert
-},{}],70:[function(require,module,exports){
+},{}],72:[function(require,module,exports){
 "use strict"
 
 function iota(n) {
@@ -10093,7 +10215,7 @@ function iota(n) {
 }
 
 module.exports = iota
-},{}],71:[function(require,module,exports){
+},{}],73:[function(require,module,exports){
 "use strict"
 
 function unique_pred(list, compare) {
@@ -10152,9 +10274,9 @@ function unique(list, compare, sorted) {
 
 module.exports = unique
 
-},{}],72:[function(require,module,exports){
-module.exports=require(63)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/game-inputs/node_modules/vkey/index.js":63}],73:[function(require,module,exports){
+},{}],74:[function(require,module,exports){
+module.exports=require(65)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/game-inputs/node_modules/vkey/index.js":65}],75:[function(require,module,exports){
 "use strict"
 
 var EventEmitter = require("events").EventEmitter
@@ -10893,73 +11015,73 @@ function createShell(options) {
 
 module.exports = createShell
 
-},{"./lib/hrtime-polyfill.js":64,"./lib/mousewheel-polyfill.js":65,"./lib/raf-polyfill.js":66,"binary-search-bounds":67,"domready":68,"events":190,"invert-hash":69,"iota-array":70,"uniq":71,"util":194,"vkey":72}],74:[function(require,module,exports){
-module.exports=require(5)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/add.js":5}],75:[function(require,module,exports){
-module.exports=require(6)
-},{"./dot":82,"./fromValues":84,"./normalize":93,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/angle.js":6}],76:[function(require,module,exports){
+},{"./lib/hrtime-polyfill.js":66,"./lib/mousewheel-polyfill.js":67,"./lib/raf-polyfill.js":68,"binary-search-bounds":69,"domready":70,"events":192,"invert-hash":71,"iota-array":72,"uniq":73,"util":196,"vkey":74}],76:[function(require,module,exports){
 module.exports=require(7)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/clone.js":7}],77:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/add.js":7}],77:[function(require,module,exports){
 module.exports=require(8)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/copy.js":8}],78:[function(require,module,exports){
+},{"./dot":84,"./fromValues":86,"./normalize":95,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/angle.js":8}],78:[function(require,module,exports){
 module.exports=require(9)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/create.js":9}],79:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/clone.js":9}],79:[function(require,module,exports){
 module.exports=require(10)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/cross.js":10}],80:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/copy.js":10}],80:[function(require,module,exports){
 module.exports=require(11)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/distance.js":11}],81:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/create.js":11}],81:[function(require,module,exports){
 module.exports=require(12)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/divide.js":12}],82:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/cross.js":12}],82:[function(require,module,exports){
 module.exports=require(13)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/dot.js":13}],83:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/distance.js":13}],83:[function(require,module,exports){
 module.exports=require(14)
-},{"./create":78,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/forEach.js":14}],84:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/divide.js":14}],84:[function(require,module,exports){
 module.exports=require(15)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/fromValues.js":15}],85:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/dot.js":15}],85:[function(require,module,exports){
 module.exports=require(16)
-},{"./add":74,"./angle":75,"./clone":76,"./copy":77,"./create":78,"./cross":79,"./distance":80,"./divide":81,"./dot":82,"./forEach":83,"./fromValues":84,"./inverse":86,"./length":87,"./lerp":88,"./max":89,"./min":90,"./multiply":91,"./negate":92,"./normalize":93,"./random":94,"./rotateX":95,"./rotateY":96,"./rotateZ":97,"./scale":98,"./scaleAndAdd":99,"./set":100,"./squaredDistance":101,"./squaredLength":102,"./subtract":103,"./transformMat3":104,"./transformMat4":105,"./transformQuat":106,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/index.js":16}],86:[function(require,module,exports){
+},{"./create":80,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/forEach.js":16}],86:[function(require,module,exports){
 module.exports=require(17)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/inverse.js":17}],87:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/fromValues.js":17}],87:[function(require,module,exports){
 module.exports=require(18)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/length.js":18}],88:[function(require,module,exports){
+},{"./add":76,"./angle":77,"./clone":78,"./copy":79,"./create":80,"./cross":81,"./distance":82,"./divide":83,"./dot":84,"./forEach":85,"./fromValues":86,"./inverse":88,"./length":89,"./lerp":90,"./max":91,"./min":92,"./multiply":93,"./negate":94,"./normalize":95,"./random":96,"./rotateX":97,"./rotateY":98,"./rotateZ":99,"./scale":100,"./scaleAndAdd":101,"./set":102,"./squaredDistance":103,"./squaredLength":104,"./subtract":105,"./transformMat3":106,"./transformMat4":107,"./transformQuat":108,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/index.js":18}],88:[function(require,module,exports){
 module.exports=require(19)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/lerp.js":19}],89:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/inverse.js":19}],89:[function(require,module,exports){
 module.exports=require(20)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/max.js":20}],90:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/length.js":20}],90:[function(require,module,exports){
 module.exports=require(21)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/min.js":21}],91:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/lerp.js":21}],91:[function(require,module,exports){
 module.exports=require(22)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/multiply.js":22}],92:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/max.js":22}],92:[function(require,module,exports){
 module.exports=require(23)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/negate.js":23}],93:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/min.js":23}],93:[function(require,module,exports){
 module.exports=require(24)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/normalize.js":24}],94:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/multiply.js":24}],94:[function(require,module,exports){
 module.exports=require(25)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/random.js":25}],95:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/negate.js":25}],95:[function(require,module,exports){
 module.exports=require(26)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateX.js":26}],96:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/normalize.js":26}],96:[function(require,module,exports){
 module.exports=require(27)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateY.js":27}],97:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/random.js":27}],97:[function(require,module,exports){
 module.exports=require(28)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateZ.js":28}],98:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateX.js":28}],98:[function(require,module,exports){
 module.exports=require(29)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/scale.js":29}],99:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateY.js":29}],99:[function(require,module,exports){
 module.exports=require(30)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/scaleAndAdd.js":30}],100:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateZ.js":30}],100:[function(require,module,exports){
 module.exports=require(31)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/set.js":31}],101:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/scale.js":31}],101:[function(require,module,exports){
 module.exports=require(32)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/squaredDistance.js":32}],102:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/scaleAndAdd.js":32}],102:[function(require,module,exports){
 module.exports=require(33)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/squaredLength.js":33}],103:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/set.js":33}],103:[function(require,module,exports){
 module.exports=require(34)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/subtract.js":34}],104:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/squaredDistance.js":34}],104:[function(require,module,exports){
 module.exports=require(35)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformMat3.js":35}],105:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/squaredLength.js":35}],105:[function(require,module,exports){
 module.exports=require(36)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformMat4.js":36}],106:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/subtract.js":36}],106:[function(require,module,exports){
 module.exports=require(37)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformQuat.js":37}],107:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformMat3.js":37}],107:[function(require,module,exports){
+module.exports=require(38)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformMat4.js":38}],108:[function(require,module,exports){
+module.exports=require(39)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformQuat.js":39}],109:[function(require,module,exports){
 if (typeof Object.create === 'function') {
   // implementation from standard node.js 'util' module
   module.exports = function inherits(ctor, superCtor) {
@@ -10984,7 +11106,7 @@ if (typeof Object.create === 'function') {
   }
 }
 
-},{}],108:[function(require,module,exports){
+},{}],110:[function(require,module,exports){
 (function (Buffer){
 var iota = require("iota-array")
 
@@ -11332,9 +11454,9 @@ function wrappedNDArrayCtor(data, shape, stride, offset) {
 
 module.exports = wrappedNDArrayCtor
 }).call(this,require("buffer").Buffer)
-},{"buffer":186,"iota-array":109}],109:[function(require,module,exports){
-module.exports=require(70)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/game-shell/node_modules/iota-array/iota.js":70}],110:[function(require,module,exports){
+},{"buffer":188,"iota-array":111}],111:[function(require,module,exports){
+module.exports=require(72)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/game-shell/node_modules/iota-array/iota.js":72}],112:[function(require,module,exports){
 'use strict';
 
 var vec3 = require('gl-vec3')
@@ -11430,7 +11552,7 @@ proto.setCameraAccessor = function(camAccess) {
 
 
 var state, target, onGround
-, dx, dy, rotX, rotY, speed
+, dx, dy, rotX, rotY, speed, camrot
 , m    = vec3.create()
 , push = vec3.create()
 , pushLen, canPush, pushAmt
@@ -11452,7 +11574,7 @@ proto.tickCamera = function(dt) {
   dx = this.rotationScale * state.dy * ((this.inverseY) ? -1 : 1)
   dy = this.rotationScale * state.dx
   // normalize/clamp/update
-  var camrot = this._camAccess.getRotationXY() // [x,y]
+  camrot = this._camAccess.getRotationXY() // [x,y]
   rotX = clamp( camrot[0] + dx, rotXcutoff )
   rotY = (camrot[1] + dy) % twopi
   this._camAccess.setRotationXY( rotX, rotY )
@@ -11464,6 +11586,7 @@ proto.tickPhysics = function(dt) {
   state = this.state
   target = this._target
   onGround = (target.atRestY() < 0)
+  rotY = this._camAccess.getRotationXY()[1]
 
   // jumping
   var canjump = (onGround || this._airjumps < this.airJumps)
@@ -11572,75 +11695,75 @@ function clamp(value, to) {
   return isFinite(to) ? Math.max(Math.min(value, to), -to) : value
 }
 
-},{"extend":111,"gl-vec3":123}],111:[function(require,module,exports){
-module.exports=require(60)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/extend/index.js":60}],112:[function(require,module,exports){
-module.exports=require(5)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/add.js":5}],113:[function(require,module,exports){
-module.exports=require(6)
-},{"./dot":120,"./fromValues":122,"./normalize":131,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/angle.js":6}],114:[function(require,module,exports){
+},{"extend":113,"gl-vec3":125}],113:[function(require,module,exports){
+module.exports=require(62)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/extend/index.js":62}],114:[function(require,module,exports){
 module.exports=require(7)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/clone.js":7}],115:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/add.js":7}],115:[function(require,module,exports){
 module.exports=require(8)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/copy.js":8}],116:[function(require,module,exports){
+},{"./dot":122,"./fromValues":124,"./normalize":133,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/angle.js":8}],116:[function(require,module,exports){
 module.exports=require(9)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/create.js":9}],117:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/clone.js":9}],117:[function(require,module,exports){
 module.exports=require(10)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/cross.js":10}],118:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/copy.js":10}],118:[function(require,module,exports){
 module.exports=require(11)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/distance.js":11}],119:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/create.js":11}],119:[function(require,module,exports){
 module.exports=require(12)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/divide.js":12}],120:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/cross.js":12}],120:[function(require,module,exports){
 module.exports=require(13)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/dot.js":13}],121:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/distance.js":13}],121:[function(require,module,exports){
 module.exports=require(14)
-},{"./create":116,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/forEach.js":14}],122:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/divide.js":14}],122:[function(require,module,exports){
 module.exports=require(15)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/fromValues.js":15}],123:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/dot.js":15}],123:[function(require,module,exports){
 module.exports=require(16)
-},{"./add":112,"./angle":113,"./clone":114,"./copy":115,"./create":116,"./cross":117,"./distance":118,"./divide":119,"./dot":120,"./forEach":121,"./fromValues":122,"./inverse":124,"./length":125,"./lerp":126,"./max":127,"./min":128,"./multiply":129,"./negate":130,"./normalize":131,"./random":132,"./rotateX":133,"./rotateY":134,"./rotateZ":135,"./scale":136,"./scaleAndAdd":137,"./set":138,"./squaredDistance":139,"./squaredLength":140,"./subtract":141,"./transformMat3":142,"./transformMat4":143,"./transformQuat":144,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/index.js":16}],124:[function(require,module,exports){
+},{"./create":118,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/forEach.js":16}],124:[function(require,module,exports){
 module.exports=require(17)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/inverse.js":17}],125:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/fromValues.js":17}],125:[function(require,module,exports){
 module.exports=require(18)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/length.js":18}],126:[function(require,module,exports){
+},{"./add":114,"./angle":115,"./clone":116,"./copy":117,"./create":118,"./cross":119,"./distance":120,"./divide":121,"./dot":122,"./forEach":123,"./fromValues":124,"./inverse":126,"./length":127,"./lerp":128,"./max":129,"./min":130,"./multiply":131,"./negate":132,"./normalize":133,"./random":134,"./rotateX":135,"./rotateY":136,"./rotateZ":137,"./scale":138,"./scaleAndAdd":139,"./set":140,"./squaredDistance":141,"./squaredLength":142,"./subtract":143,"./transformMat3":144,"./transformMat4":145,"./transformQuat":146,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/index.js":18}],126:[function(require,module,exports){
 module.exports=require(19)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/lerp.js":19}],127:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/inverse.js":19}],127:[function(require,module,exports){
 module.exports=require(20)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/max.js":20}],128:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/length.js":20}],128:[function(require,module,exports){
 module.exports=require(21)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/min.js":21}],129:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/lerp.js":21}],129:[function(require,module,exports){
 module.exports=require(22)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/multiply.js":22}],130:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/max.js":22}],130:[function(require,module,exports){
 module.exports=require(23)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/negate.js":23}],131:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/min.js":23}],131:[function(require,module,exports){
 module.exports=require(24)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/normalize.js":24}],132:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/multiply.js":24}],132:[function(require,module,exports){
 module.exports=require(25)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/random.js":25}],133:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/negate.js":25}],133:[function(require,module,exports){
 module.exports=require(26)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateX.js":26}],134:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/normalize.js":26}],134:[function(require,module,exports){
 module.exports=require(27)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateY.js":27}],135:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/random.js":27}],135:[function(require,module,exports){
 module.exports=require(28)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateZ.js":28}],136:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateX.js":28}],136:[function(require,module,exports){
 module.exports=require(29)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/scale.js":29}],137:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateY.js":29}],137:[function(require,module,exports){
 module.exports=require(30)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/scaleAndAdd.js":30}],138:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateZ.js":30}],138:[function(require,module,exports){
 module.exports=require(31)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/set.js":31}],139:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/scale.js":31}],139:[function(require,module,exports){
 module.exports=require(32)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/squaredDistance.js":32}],140:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/scaleAndAdd.js":32}],140:[function(require,module,exports){
 module.exports=require(33)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/squaredLength.js":33}],141:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/set.js":33}],141:[function(require,module,exports){
 module.exports=require(34)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/subtract.js":34}],142:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/squaredDistance.js":34}],142:[function(require,module,exports){
 module.exports=require(35)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformMat3.js":35}],143:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/squaredLength.js":35}],143:[function(require,module,exports){
 module.exports=require(36)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformMat4.js":36}],144:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/subtract.js":36}],144:[function(require,module,exports){
 module.exports=require(37)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformQuat.js":37}],145:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformMat3.js":37}],145:[function(require,module,exports){
+module.exports=require(38)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformMat4.js":38}],146:[function(require,module,exports){
+module.exports=require(39)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformQuat.js":39}],147:[function(require,module,exports){
 'use strict';
 
 var collisions = require('collide-3d-tilemap')
@@ -11812,6 +11935,7 @@ Physics.prototype.tick = function(dt) {
         setBoxPos( b.aabb, tmpBox.base )
         if (b.resting[1]<0) tmpResting[1]=-1
         vec3.copy( b.resting, tmpResting )
+        if (b.onStep) b.onStep();
       }
     }
 
@@ -11857,11 +11981,11 @@ function setBoxPos(box, pos) {
   vec3.add( box.max, box.base, box.vec )
 }
 
-},{"./rigidBody":183,"aabb-3d":146,"collide-3d-tilemap":148,"extend":149,"gl-vec3":161}],146:[function(require,module,exports){
-module.exports=require(48)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/aabb-3d/index.js":48,"gl-matrix":147}],147:[function(require,module,exports){
-module.exports=require(49)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/aabb-3d/node_modules/gl-matrix/dist/gl-matrix.js":49}],148:[function(require,module,exports){
+},{"./rigidBody":185,"aabb-3d":148,"collide-3d-tilemap":150,"extend":151,"gl-vec3":163}],148:[function(require,module,exports){
+module.exports=require(50)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/aabb-3d/index.js":50,"gl-matrix":149}],149:[function(require,module,exports){
+module.exports=require(51)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/aabb-3d/node_modules/gl-matrix/dist/gl-matrix.js":51}],150:[function(require,module,exports){
 module.exports = function(field, tilesize, dimensions, offset) {
   dimensions = dimensions || [ 
     Math.sqrt(field.length) >> 0
@@ -11949,75 +12073,75 @@ module.exports = function(field, tilesize, dimensions, offset) {
   }  
 }
 
-},{}],149:[function(require,module,exports){
-module.exports=require(60)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/extend/index.js":60}],150:[function(require,module,exports){
-module.exports=require(5)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/add.js":5}],151:[function(require,module,exports){
-module.exports=require(6)
-},{"./dot":158,"./fromValues":160,"./normalize":169,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/angle.js":6}],152:[function(require,module,exports){
+},{}],151:[function(require,module,exports){
+module.exports=require(62)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/extend/index.js":62}],152:[function(require,module,exports){
 module.exports=require(7)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/clone.js":7}],153:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/add.js":7}],153:[function(require,module,exports){
 module.exports=require(8)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/copy.js":8}],154:[function(require,module,exports){
+},{"./dot":160,"./fromValues":162,"./normalize":171,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/angle.js":8}],154:[function(require,module,exports){
 module.exports=require(9)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/create.js":9}],155:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/clone.js":9}],155:[function(require,module,exports){
 module.exports=require(10)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/cross.js":10}],156:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/copy.js":10}],156:[function(require,module,exports){
 module.exports=require(11)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/distance.js":11}],157:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/create.js":11}],157:[function(require,module,exports){
 module.exports=require(12)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/divide.js":12}],158:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/cross.js":12}],158:[function(require,module,exports){
 module.exports=require(13)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/dot.js":13}],159:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/distance.js":13}],159:[function(require,module,exports){
 module.exports=require(14)
-},{"./create":154,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/forEach.js":14}],160:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/divide.js":14}],160:[function(require,module,exports){
 module.exports=require(15)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/fromValues.js":15}],161:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/dot.js":15}],161:[function(require,module,exports){
 module.exports=require(16)
-},{"./add":150,"./angle":151,"./clone":152,"./copy":153,"./create":154,"./cross":155,"./distance":156,"./divide":157,"./dot":158,"./forEach":159,"./fromValues":160,"./inverse":162,"./length":163,"./lerp":164,"./max":165,"./min":166,"./multiply":167,"./negate":168,"./normalize":169,"./random":170,"./rotateX":171,"./rotateY":172,"./rotateZ":173,"./scale":174,"./scaleAndAdd":175,"./set":176,"./squaredDistance":177,"./squaredLength":178,"./subtract":179,"./transformMat3":180,"./transformMat4":181,"./transformQuat":182,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/index.js":16}],162:[function(require,module,exports){
+},{"./create":156,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/forEach.js":16}],162:[function(require,module,exports){
 module.exports=require(17)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/inverse.js":17}],163:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/fromValues.js":17}],163:[function(require,module,exports){
 module.exports=require(18)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/length.js":18}],164:[function(require,module,exports){
+},{"./add":152,"./angle":153,"./clone":154,"./copy":155,"./create":156,"./cross":157,"./distance":158,"./divide":159,"./dot":160,"./forEach":161,"./fromValues":162,"./inverse":164,"./length":165,"./lerp":166,"./max":167,"./min":168,"./multiply":169,"./negate":170,"./normalize":171,"./random":172,"./rotateX":173,"./rotateY":174,"./rotateZ":175,"./scale":176,"./scaleAndAdd":177,"./set":178,"./squaredDistance":179,"./squaredLength":180,"./subtract":181,"./transformMat3":182,"./transformMat4":183,"./transformQuat":184,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/index.js":18}],164:[function(require,module,exports){
 module.exports=require(19)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/lerp.js":19}],165:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/inverse.js":19}],165:[function(require,module,exports){
 module.exports=require(20)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/max.js":20}],166:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/length.js":20}],166:[function(require,module,exports){
 module.exports=require(21)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/min.js":21}],167:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/lerp.js":21}],167:[function(require,module,exports){
 module.exports=require(22)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/multiply.js":22}],168:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/max.js":22}],168:[function(require,module,exports){
 module.exports=require(23)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/negate.js":23}],169:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/min.js":23}],169:[function(require,module,exports){
 module.exports=require(24)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/normalize.js":24}],170:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/multiply.js":24}],170:[function(require,module,exports){
 module.exports=require(25)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/random.js":25}],171:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/negate.js":25}],171:[function(require,module,exports){
 module.exports=require(26)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateX.js":26}],172:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/normalize.js":26}],172:[function(require,module,exports){
 module.exports=require(27)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateY.js":27}],173:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/random.js":27}],173:[function(require,module,exports){
 module.exports=require(28)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateZ.js":28}],174:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateX.js":28}],174:[function(require,module,exports){
 module.exports=require(29)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/scale.js":29}],175:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateY.js":29}],175:[function(require,module,exports){
 module.exports=require(30)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/scaleAndAdd.js":30}],176:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateZ.js":30}],176:[function(require,module,exports){
 module.exports=require(31)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/set.js":31}],177:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/scale.js":31}],177:[function(require,module,exports){
 module.exports=require(32)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/squaredDistance.js":32}],178:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/scaleAndAdd.js":32}],178:[function(require,module,exports){
 module.exports=require(33)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/squaredLength.js":33}],179:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/set.js":33}],179:[function(require,module,exports){
 module.exports=require(34)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/subtract.js":34}],180:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/squaredDistance.js":34}],180:[function(require,module,exports){
 module.exports=require(35)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformMat3.js":35}],181:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/squaredLength.js":35}],181:[function(require,module,exports){
 module.exports=require(36)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformMat4.js":36}],182:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/subtract.js":36}],182:[function(require,module,exports){
 module.exports=require(37)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformQuat.js":37}],183:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformMat3.js":37}],183:[function(require,module,exports){
+module.exports=require(38)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformMat4.js":38}],184:[function(require,module,exports){
+module.exports=require(39)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformQuat.js":39}],185:[function(require,module,exports){
 
 var aabb = require('aabb-3d')
 ,   vec3 = require('gl-vec3')
@@ -12040,6 +12164,7 @@ function RigidBody(_aabb, mass, friction, restitution, gravMult, onCollide, auto
   this.gravityMultiplier = gravMult
   this.onCollide = onCollide
   this.autoStep = !!autoStep
+  this.onStep = null
   // internals
   this.velocity = vec3.create()
   this.resting = [ false, false, false ]
@@ -12068,7 +12193,7 @@ RigidBody.prototype.atRestY = function() { return this.resting[1] }
 RigidBody.prototype.atRestZ = function() { return this.resting[2] }
 
 
-},{"aabb-3d":146,"gl-vec3":161}],184:[function(require,module,exports){
+},{"aabb-3d":148,"gl-vec3":163}],186:[function(require,module,exports){
 "use strict"
 
 function traceRay_impl(
@@ -12290,7 +12415,7 @@ function traceRay(voxels, origin, direction, max_d, hit_pos, hit_norm, EPSILON) 
 }
 
 module.exports = traceRay
-},{}],185:[function(require,module,exports){
+},{}],187:[function(require,module,exports){
 /*
  * A fast javascript implementation of simplex noise by Jonas Wagner
  *
@@ -12698,7 +12823,7 @@ if (typeof module !== 'undefined') {
 
 })();
 
-},{}],186:[function(require,module,exports){
+},{}],188:[function(require,module,exports){
 /*!
  * The buffer module from node.js, for the browser.
  *
@@ -13751,7 +13876,7 @@ function decodeUtf8Char (str) {
   }
 }
 
-},{"base64-js":187,"ieee754":188,"is-array":189}],187:[function(require,module,exports){
+},{"base64-js":189,"ieee754":190,"is-array":191}],189:[function(require,module,exports){
 var lookup = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
 ;(function (exports) {
@@ -13873,7 +13998,7 @@ var lookup = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 	exports.fromByteArray = uint8ToBase64
 }(typeof exports === 'undefined' ? (this.base64js = {}) : exports))
 
-},{}],188:[function(require,module,exports){
+},{}],190:[function(require,module,exports){
 exports.read = function(buffer, offset, isLE, mLen, nBytes) {
   var e, m,
       eLen = nBytes * 8 - mLen - 1,
@@ -13959,7 +14084,7 @@ exports.write = function(buffer, value, offset, isLE, mLen, nBytes) {
   buffer[offset + i - d] |= s * 128;
 };
 
-},{}],189:[function(require,module,exports){
+},{}],191:[function(require,module,exports){
 
 /**
  * isArray
@@ -13994,7 +14119,7 @@ module.exports = isArray || function (val) {
   return !! val && '[object Array]' == str.call(val);
 };
 
-},{}],190:[function(require,module,exports){
+},{}],192:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -14297,9 +14422,9 @@ function isUndefined(arg) {
   return arg === void 0;
 }
 
-},{}],191:[function(require,module,exports){
-module.exports=require(107)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/inherits/inherits_browser.js":107}],192:[function(require,module,exports){
+},{}],193:[function(require,module,exports){
+module.exports=require(109)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/inherits/inherits_browser.js":109}],194:[function(require,module,exports){
 // shim for using process in browser
 
 var process = module.exports = {};
@@ -14387,14 +14512,14 @@ process.chdir = function (dir) {
     throw new Error('process.chdir is not supported');
 };
 
-},{}],193:[function(require,module,exports){
+},{}],195:[function(require,module,exports){
 module.exports = function isBuffer(arg) {
   return arg && typeof arg === 'object'
     && typeof arg.copy === 'function'
     && typeof arg.fill === 'function'
     && typeof arg.readUInt8 === 'function';
 }
-},{}],194:[function(require,module,exports){
+},{}],196:[function(require,module,exports){
 (function (process,global){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -14984,4 +15109,4 @@ function hasOwnProperty(obj, prop) {
 }
 
 }).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./support/isBuffer":193,"_process":192,"inherits":191}]},{},[1]);
+},{"./support/isBuffer":195,"_process":194,"inherits":193}]},{},[1]);
