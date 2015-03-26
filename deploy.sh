@@ -1,4 +1,5 @@
 #!/bin/sh -x
+set -e
 git checkout gh-pages
 git merge -X theirs master -m "Merge branch 'master' into gh-pages"
 browserify index.js > bundle.js
