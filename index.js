@@ -21,8 +21,8 @@ var opts = {
   // rendering
   // player
   playerStart: [0,20,0],
-  playerHeight: 1.8,
-  playerWidth: 0.6,
+  playerHeight: 1.4,
+  playerWidth: 1.0  ,
   playerAutoStep: true,
 }
 
@@ -42,22 +42,26 @@ makeShadows(game)
 */
 
 // register a spritesheet which has player/mob sprites
-game.registry.registerSpritesheet('playermob','sprites.png',100,32)
+game.registry.registerMaterial('playersprite', null, 'player.png')
+
 
 var ph = opts.playerHeight,
     pw = opts.playerWidth
-var s = game.rendering.getScene()
-//var psprite = game.rendering.makeEntitySprite('playermob',0)
-//psprite.size = ph
-var box = BABYLON.Mesh.CreateBox('',1,game.rendering.getScene())
-box.scaling = new BABYLON.Vector3(pw,ph,pw)
-game.setPlayerMesh(box, [pw/2, ph/2, pw/2] )
+
+var pmesh = game.rendering.makeEntitySpriteMesh('playersprite', 30, 30, 0)
+pmesh.scaling = new BABYLON.Vector3(pw, ph, 1)
+game.setPlayerMesh(pmesh, [pw/2, ph/2, pw/2] )
 
 // simplest animation evar
-//game.playerEntity.on('tick',function() {
-//  var onground = this.body.resting[1] < 0
-//  this.mesh.cellIndex = (onground) ? 0 : 1
-//})
+var facing = 1
+game.playerEntity.on('tick',function() {
+  var onground = this.body.resting[1] < 0
+  var cell = (onground) ? 0 : 1
+  this.mesh._setCell(cell)
+  if (game.inputs.state.left) facing = -1
+  if (game.inputs.state.right) facing = 1
+  game.playerEntity.mesh.scaling.x = pw * facing
+})
 
 
 /*
