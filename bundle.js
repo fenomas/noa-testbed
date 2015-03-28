@@ -22,8 +22,8 @@ var opts = {
   // rendering
   // player
   playerStart: [0,20,0],
-  playerHeight: 1.8,
-  playerWidth: 0.6,
+  playerHeight: 1.4,
+  playerWidth: 1.0  ,
   playerAutoStep: true,
 }
 
@@ -43,22 +43,26 @@ makeShadows(game)
 */
 
 // register a spritesheet which has player/mob sprites
-game.registry.registerSpritesheet('playermob','sprites.png',100,32)
+game.registry.registerMaterial('playersprite', null, 'player.png')
+
 
 var ph = opts.playerHeight,
     pw = opts.playerWidth
-var s = game.rendering.getScene()
-//var psprite = game.rendering.makeEntitySprite('playermob',0)
-//psprite.size = ph
-var box = BABYLON.Mesh.CreateBox('',1,game.rendering.getScene())
-box.scaling = new BABYLON.Vector3(pw,ph,pw)
-game.setPlayerMesh(box, [pw/2, ph/2, pw/2] )
+
+var pmesh = game.rendering.makeEntitySpriteMesh('playersprite', 30, 30, 0)
+pmesh.scaling = new BABYLON.Vector3(pw, ph, 1)
+game.setPlayerMesh(pmesh, [pw/2, ph/2, pw/2] )
 
 // simplest animation evar
-//game.playerEntity.on('tick',function() {
-//  var onground = this.body.resting[1] < 0
-//  this.mesh.cellIndex = (onground) ? 0 : 1
-//})
+var facing = 1
+game.playerEntity.on('tick',function() {
+  var onground = this.body.resting[1] < 0
+  var cell = (onground) ? 0 : 1
+  this.mesh._setCell(cell)
+  if (game.inputs.state.left) facing = -1
+  if (game.inputs.state.right) facing = 1
+  game.playerEntity.mesh.scaling.x = pw * facing
+})
 
 
 /*
@@ -165,17 +169,25 @@ var vec3 = require('gl-vec3')
 module.exports = createMob
 
 
+var registered = false
+
 function createMob( game, w, h, x, y, z ) {
   var scene = game.rendering.getScene()
-  var sprite = game.rendering.makeEntitySprite('playermob',2)
-  sprite.size = w
+  if (!registered) {
+    game.registry.registerMaterial('mobsprite', null, 'mob.png')
+    registered = true
+  }
+
+  var mesh = game.rendering.makeEntitySpriteMesh('mobsprite', 24, 24, 0)
+  mesh.scaling = new BABYLON.Vector3(w, h, 1)
+  
   var offset = [w/2, h/2, w/2]
   var dat = { lastHit:0 }
   
   // add an entity for the "mob"
   var ent = game.entities.add(
     [x,y,z],              // starting loc
-    w, h, sprite, offset, // size, mesh, mesh offset
+    w, h, mesh, offset,   // size, mesh, mesh offset
     dat, true,            // data object, do physics
     true, true            // collide terrain, collide entities
   )
@@ -204,7 +216,9 @@ function collideEntity(game, other) {
 function mobTick(dt) {
   /* jshint validthis:true */
   var onground = this.body.resting[1] < 0
-  this.mesh.cellIndex = (onground) ? 2 : 3
+  var cell = (onground) ? 0 : 1
+  this.mesh._setCell(cell)
+  
   if (onground && Math.random() < .01) {   // jump!
     var x = 4-8*Math.random()
     var z = 4-8*Math.random()
@@ -213,14 +227,6 @@ function mobTick(dt) {
   }
 }
 
-var mobmat
-function getMobMat(scene) {
-  if (!mobmat) {
-    mobmat = new BABYLON.StandardMaterial('m', scene)
-    mobmat.diffuseColor = new BABYLON.Color3( .7, .4, .4 )
-  }
-  return mobmat
-}
 
 
 
@@ -480,6 +486,7 @@ function Shadows( game ) {
                                 scene, true, false, BABYLON.Texture.NEAREST_SAMPLINGMODE)
   shmat.diffuseTexture = tex
   shmat.diffuseTexture.hasAlpha = true
+  shmat.specularColor = new BABYLON.Color3(0,0,0)
   shadow.material = shmat
   shadow.rotation.x = Math.PI/2
   shadow.setEnabled(false)
@@ -505,7 +512,7 @@ function tickShadows(game) {
       sh.setEnabled(true)
       sh.position.x = loc[0]
       sh.position.z = loc[2]
-      sh.position.y = pick.position[1] + .005
+      sh.position.y = pick.position[1] + .05
       var dist = loc[1] - pick.position[1]
       var size = ents[i].bb.vec
       var scale = (size[0]+size[2])/2 * (1 - dist/shadowDist)
@@ -1277,7 +1284,7 @@ var defaults = {
 
 /*
  *    Main game engine object
- *  Emits: tick
+ *  Emits: tick, beforeRender
 */
 
 function Engine(opts) {
@@ -1398,6 +1405,8 @@ Engine.prototype.render = function(framePart) {
   this.inputs.tick()
   // update entity meshes to account for time since last physics tick
   this.entities.updateEntitiesForRender(dt)
+  // event for anyone who needs updated entities
+  this.emit('beforeRender', dt)
   // render whole scene
   this.rendering.render(dt)
 }
@@ -2302,19 +2311,17 @@ function Registry(noa, opts) {
   var _opts = extend( defaults, opts )
   this._texturePath = _opts.texturePath
 
-  this._blockIDs = {}
-  this._blockProps = [ null ]
-  this._blockMats = [ null ]
-  
-  this._matIDs = {}
+  this._blockIDs = {}     // Block registry
+  this._blockMats = []
+  this._blockData = []
+  this._matIDs = {}       // Material (texture/color) registry
   this._matData = []
+  this._meshIDs = {}      // Mesh registry
+  this._meshData = []
 
-  this._spritesheetIDs = {}
-  this._spritesheetData = []
+  // make block type 0 empty space
+  this._blockData[0] = null
   
-  this._meshIDs = {}
-  this._meshes = []
-
   // define some default values that may be overwritten
   this.registerBlock( 'dirt', 'dirt', {} )
   this.registerMaterial( 'dirt', [0.4, 0.4, 0.4], null )
@@ -2329,9 +2336,9 @@ function Registry(noa, opts) {
 // or a 6-array: [ +x, -x, +y, -y, +z, -z ]
 Registry.prototype.registerBlock = function(name, material, properties) {
   // allow overwrites, for now anyway
-  var id = this._blockIDs[name] || this._blockProps.length
+  var id = this._blockIDs[name] || this._blockData.length
   this._blockIDs[name] = id
-  this._blockProps[id] = properties || null
+  this._blockData[id] = properties || null
   // always store 6 material IDs per blockID, so material lookup is monomorphic
   for (var i=0; i<6; ++i) {
     var matname
@@ -2378,10 +2385,13 @@ Registry.prototype.registerSpritesheet = function(name, url, count, size) {
 }
 
 // Register a mesh that can be instanced later
-Registry.prototype.registerMesh = function(name, mesh) {
-  var id = this._meshIDs[name] || this._meshes.length
+Registry.prototype.registerMesh = function(name, mesh, props) {
+  var id = this._meshIDs[name] || this._meshData.length
   this._meshIDs[name] = id
-  this._meshes[id] = mesh
+  this._meshData[id] = {
+    mesh: mesh,
+    props: props
+  }
   // disable mesh so original doesn't stay in scene
   mesh.setEnabled(false)
   return id
@@ -2389,7 +2399,7 @@ Registry.prototype.registerMesh = function(name, mesh) {
 
 Registry.prototype._getMesh = function(name) {
   var id = this._meshIDs[name]
-  return this._meshes[id]
+  return this._meshData[id].mesh
 }
 
 
@@ -2414,6 +2424,11 @@ Registry.prototype.getBlockID = function(name) {
 // dir is a value 0..5: [ +x, -x, +y, -y, +z, -z ]
 Registry.prototype.getBlockFaceMaterial = function(blockId, dir) {
   return this._blockMats[blockId*6 + dir]
+}
+
+// look up material color given ID
+Registry.prototype.getMaterialId = function(name) {
+  return this._matIDs[name]
 }
 
 // look up material color given ID
@@ -2586,22 +2601,51 @@ Rendering.prototype.zoomInOrOut = function(dir) {
 
 /*
  *   Entity sprite/mesh management
+ *   Makes a sprite-like mesh with billboarding set to face camera
 */
 
-Rendering.prototype.makeEntitySprite = function(sheetname, cell) {
-  var id = this.noa.registry._spritesheetIDs[sheetname]
-  if (!this._spriteManagers[id]) {
-    var dat = this.noa.registry._spritesheetData[id]
-    this._spriteManagers[id] = 
-      new BABYLON.SpriteManager("sprites"+id, dat.url, dat.count, dat.size, 
-                                this._scene, undefined,
+Rendering.prototype.makeEntitySpriteMesh = function(matname, cellw, cellh, cellnum) {
+  var id = this.noa.registry.getMaterialId(matname)
+  var url = this.noa.registry.getMaterialTexture(id)
+  var tex = new BABYLON.Texture(url, this._scene, true, true, 
                                 BABYLON.Texture.NEAREST_SAMPLINGMODE)
-  }
-  var mgr = this._spriteManagers[id]
-  var sprite = new BABYLON.Sprite('spr',mgr)
-  sprite.cellIndex = cell
-  return sprite
+  tex.hasAlpha = true
+  var mat = new BABYLON.StandardMaterial('', this._scene)
+  var mesh = BABYLON.Mesh.CreatePlane('esm', 1, this._scene)
+  mat.diffuseTexture = tex
+  mat.useAlphaFromDiffuseTexture = true
+  mat.specularColor = new col3(0,0,0)
+  mat.emissiveColor = new col3(1,1,1)
+  mat.backFaceCulling = false
+  mesh.material = mat
+  mesh.billboardMode = BABYLON.Mesh.BILLBOARDMODE_Y
+  mesh._cellwidth = cellw
+  mesh._cellheight = cellh
+  mesh._lastcell = -1
+  mesh._setCell = setSpriteMeshCell.bind(mesh)
+//  mesh._setCell(cellnum)
+  return mesh
 }
+
+function setSpriteMeshCell(cell) {
+  /* jshint validthis:true */
+  if (cell==this._lastcell) return
+  var tex = this.material.diffuseTexture
+  if (!tex.isReady()) { return }
+  var s = tex.getSize()
+  var cols = s.width/this._cellwidth
+  var rows = s.height/this._cellheight
+  tex.uScale = 1/cols
+  tex.vScale = 1/rows
+  var wholecols = cols>>0
+  var upos = cell % wholecols
+  var vpos = Math.floor(cell/wholecols)
+  tex.uOffset =  cols/2 - upos - 0.5
+  tex.vOffset = -rows/2 + vpos + 0.5
+  this._lastcell = cell
+}
+
+
 
 Rendering.prototype.makeMeshInstance = function(meshname) {
   var mesh = this.noa.registry._getMesh(meshname)
@@ -2716,6 +2760,20 @@ function updateCamera(self) {
   // lerp actual camera position/target towards values
   self._camera.position.copyFrom(cpos)
   self._camera.setTarget(tgt)
+  fadePlayerMesh(self)
+}
+
+function fadePlayerMesh(self) {
+  // fade player model when zoomed in close
+  var m = self.noa.playerEntity.mesh
+  if (!m) return
+  var show = 3
+  var hide = 2
+  var z = self._zoomDistance
+  m.visibility = (z>hide)
+  if (m.material) {
+    m.material.alpha = (z>show) ? 1 : (z<=hide) ? 0 : (z-hide)/(show-hide)
+  }
 }
 
 
