@@ -14,7 +14,7 @@ var opts = {
   inverseY: true,
   // world data
   chunkSize: 32,
-  generator: worldgen, // pass in a more interesting generator function
+  generator: worldgen.generator, // pass in a more interesting generator function
   texturePath: 'textures/',
   chunkAddDistance: 2,
   chunkRemoveDistance: 3,
@@ -32,6 +32,7 @@ var game = noa( opts )
 var addParticles = makeParticles(game)
 var launchProjectile = projectile(game, addParticles)
 
+worldgen.registerBlocks(game)
 makeShadows(game)
 
 
@@ -77,29 +78,7 @@ for (var i=0; i<30; ++i) {
   createMob( game, size, size, x, y, z )
 }
 
-/*
- *      define block types and register materials
- *      TODO: fit these into the options object?
-*/
 
-// materials
-var reg = game.registry
-reg.registerMaterial( 'dirt',       null, 'dirt.png' )
-reg.registerMaterial( 'grass',      null, 'grass.png' )
-reg.registerMaterial( 'grass_side', null, 'grass_dirt.png' )
-reg.registerMaterial( 'stone',      null, 'cobblestone.png' )
-for (i=1; i<30; i++) {
-  var color = [ Math.random(), Math.random(), Math.random() ]
-  reg.registerMaterial( 'color'+i, color, null)
-}
-
-// block types
-reg.registerBlock( 'dirt', 'dirt' )
-reg.registerBlock( 'grass', ['grass', 'dirt', 'grass_side'] )
-reg.registerBlock( 'stone', 'stone' )
-for (i=1; i<30; i++) {
-  reg.registerBlock( 'block'+i, 'color'+i )
-}
 
 
 
