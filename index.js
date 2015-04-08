@@ -5,7 +5,6 @@ var noa = require('noa')
 var createMob = require('./lib/mob')
 var worldgen = require('./lib/worldgen')
 var projectile = require('./lib/projectile')
-var makeShadows = require('./lib/shadows')
 var makeParticles = require('./lib/particles')
 
 var opts = {
@@ -33,7 +32,6 @@ var addParticles = makeParticles(game)
 var launchProjectile = projectile(game, addParticles)
 
 worldgen.registerBlocks(game)
-makeShadows(game)
 
 
 
