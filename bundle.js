@@ -6,7 +6,6 @@ var noa = require('noa')
 var createMob = require('./lib/mob')
 var worldgen = require('./lib/worldgen')
 var projectile = require('./lib/projectile')
-var makeShadows = require('./lib/shadows')
 var makeParticles = require('./lib/particles')
 
 var opts = {
@@ -15,7 +14,7 @@ var opts = {
   inverseY: true,
   // world data
   chunkSize: 32,
-  generator: worldgen, // pass in a more interesting generator function
+  generator: worldgen.generator, // pass in a more interesting generator function
   texturePath: 'textures/',
   chunkAddDistance: 2,
   chunkRemoveDistance: 3,
@@ -33,7 +32,7 @@ var game = noa( opts )
 var addParticles = makeParticles(game)
 var launchProjectile = projectile(game, addParticles)
 
-makeShadows(game)
+worldgen.registerBlocks(game)
 
 
 
@@ -78,29 +77,7 @@ for (var i=0; i<30; ++i) {
   createMob( game, size, size, x, y, z )
 }
 
-/*
- *      define block types and register materials
- *      TODO: fit these into the options object?
-*/
 
-// materials
-var reg = game.registry
-reg.registerMaterial( 'dirt',       null, 'dirt.png' )
-reg.registerMaterial( 'grass',      null, 'grass.png' )
-reg.registerMaterial( 'grass_side', null, 'grass_dirt.png' )
-reg.registerMaterial( 'stone',      null, 'cobblestone.png' )
-for (i=1; i<30; i++) {
-  var color = [ Math.random(), Math.random(), Math.random() ]
-  reg.registerMaterial( 'color'+i, color, null)
-}
-
-// block types
-reg.registerBlock( 'dirt', 'dirt' )
-reg.registerBlock( 'grass', ['grass', 'dirt', 'grass_side'] )
-reg.registerBlock( 'stone', 'stone' )
-for (i=1; i<30; i++) {
-  reg.registerBlock( 'block'+i, 'color'+i )
-}
 
 
 
@@ -160,7 +137,7 @@ game.inputs.down.on('timebomb', function() {
 
 
 
-},{"./lib/mob":2,"./lib/particles":3,"./lib/projectile":4,"./lib/shadows":5,"./lib/worldgen":6,"gl-vec3":18,"noa":40}],2:[function(require,module,exports){
+},{"./lib/mob":2,"./lib/particles":3,"./lib/projectile":4,"./lib/worldgen":5,"gl-vec3":17,"noa":39}],2:[function(require,module,exports){
 'use strict';
 /* globals BABYLON */
 
@@ -189,7 +166,7 @@ function createMob( game, w, h, x, y, z ) {
     [x,y,z],              // starting loc
     w, h, mesh, offset,   // size, mesh, mesh offset
     dat, true,            // data object, do physics
-    true, true            // collide terrain, collide entities
+    true, true, true      // collide terrain, collide entities, shadow
   )
   ent.body.friction = 5
   ent.body.gravityMultiplier = 1.5
@@ -230,7 +207,7 @@ function mobTick(dt) {
 
 
 
-},{"gl-vec3":18}],3:[function(require,module,exports){
+},{"gl-vec3":17}],3:[function(require,module,exports){
 'use strict';
 /* globals BABYLON */
 
@@ -371,9 +348,9 @@ function makeProjectileLauncher(game, particleAdder) {
     var pos = game.getPlayerEyePosition()
     var dat = { counter:0 }
     // usage: entities.add( pos, w, h, mesh, meshOffset, data, doPhysics,
-    //                      collideTerrain, collideEntities )
+    //                      collideTerrain, collideEntities, shadow )
     var e = game.entities.add( pos, s, s, mesh, [s/2,s/2,s/2], 
-                              dat, true, true, false )
+                              dat, true, true, false, false )
     // adjust physics properties thusly
     e.body.gravityMultiplier = gravMult
     e.body.friction = friction
@@ -406,6 +383,8 @@ function makeProjectileLauncher(game, particleAdder) {
 
 function onCollide(game, entity, spelltype, option) {
   if (spelltype==2) return
+  // turn off collide terrain so as not to inhibit blocks being made
+  entity.collideTerrain = false
   addBlocksInSphere(game, option, entity.getPosition(), 2.3, 
                     entity.data.particleAdder)
   entity.data.particles.stop()
@@ -465,111 +444,110 @@ function addBlocksInSphere(game, id, pos, radius, particleAdder) {
   }
 }
 
-},{"gl-vec3":18}],5:[function(require,module,exports){
-'use strict';
-/* globals BABYLON */
-
-
-module.exports = Shadows
-
-var shadow
-var shadows = []
-var shadowDist = 10
-
-function Shadows( game ) {
-  var scene = game.rendering.getScene()
-  
-  // build a mesh to instance into shadows
-  shadow = new BABYLON.Mesh.CreatePlane('shadow',1,scene)
-  var shmat = new BABYLON.StandardMaterial('shmat',scene)
-  var tex = new BABYLON.Texture( game.registry._texturePath+'shadow.png', 
-                                scene, true, false, BABYLON.Texture.NEAREST_SAMPLINGMODE)
-  shmat.diffuseTexture = tex
-  shmat.diffuseTexture.hasAlpha = true
-  shmat.specularColor = new BABYLON.Color3(0,0,0)
-  shadow.material = shmat
-  shadow.rotation.x = Math.PI/2
-  shadow.setEnabled(false)
-  
-  // handle all entity shadows in future on #tick
-  game.on('tick', tickShadows.bind(null, game) )
-}
-
-
-function tickShadows(game) {
-  var ents = game.entities.entities
-  
-  // grow/shrink pool of shadow instances
-  while(shadows.length<ents.length) shadows.push(shadow.createInstance(''))
-  while(shadows.length>ents.length) shadows.pop().dispose()
-  
-  // iterate and set properties
-  for (var i=0; i<ents.length; ++i) {
-    var sh = shadows[i]
-    var loc = ents[i].getPosition()
-    var pick = game.pick(loc, [0,-1,0], shadowDist)
-    if (pick) {
-      sh.setEnabled(true)
-      sh.position.x = loc[0]
-      sh.position.z = loc[2]
-      sh.position.y = pick.position[1] + .05
-      var dist = loc[1] - pick.position[1]
-      var size = ents[i].bb.vec
-      var scale = (size[0]+size[2])/2 * (1 - dist/shadowDist)
-      sh.scaling.x = sh.scaling.y = scale
-    } else {
-      sh.setEnabled(false)
-    }
-  }
-  
-}
-
-
-},{}],6:[function(require,module,exports){
+},{"gl-vec3":17}],5:[function(require,module,exports){
 'use strict';
 
 var SimplexNoise = require('simplex-noise')
-
-module.exports = generate
-
-
 var simplex = new SimplexNoise()
-window.simples = simplex
-var xzScale = 80,
-    yScale = 6
 
-// ids: stone, dirt, colors... , grass
-var blockIDs = [ 3,1,4,5,6,7,8,9,2 ]
+module.exports = {
+  generator: generateWorld,
+  registerBlocks: registerBlocks
+}
 
-function generate( noa, chunk, x, y, z ) {
+
+
+/*
+ *   Block registration - register blocktypes used in world
+*/
+
+
+
+var dirtID, grassID, stoneID, block1ID, cloudID, leafID
+
+function registerBlocks(game) {
+  var reg = game.registry
+
+  // materials used by blocks
+  reg.registerMaterial( 'dirt',       null, 'dirt.png' )
+  reg.registerMaterial( 'grass',      null, 'grass.png' )
+  reg.registerMaterial( 'grass_side', null, 'grass_dirt.png' )
+  reg.registerMaterial( 'stone',      null, 'cobblestone.png' )
+  reg.registerMaterial( 'leaf',       null, 'leaf.png', true )
+  for (var i=1; i<30; i++) {
+    var color = [ Math.random(), Math.random(), Math.random() ]
+    reg.registerMaterial( 'color'+i, color, null)
+  }
+  reg.registerMaterial( 'white', [1,1,1] )
+
+  // block types
+  dirtID =  reg.registerBlock( 'dirt', 'dirt' )
+  grassID = reg.registerBlock( 'grass', ['grass', 'dirt', 'grass_side'] )
+  stoneID = reg.registerBlock( 'stone', 'stone' )
+  leafID =  reg.registerBlock( 'leaf',  'leaf', null, true, false, false )
+  cloudID = reg.registerBlock( 'cloud', 'white' )
+  for (i=1; i<30; i++) {
+    reg.registerBlock( 'block'+i, 'color'+i )
+  }
+  block1ID = reg.getBlockID('block1')
+
+}
+
+
+
+
+/*
+ *   Worldgen - simple terrain/cloud generator
+*/
+
+
+var terrainXZ = 80, 
+    terrainY = 6
+
+var cloudXZ = 200, 
+    cloudY = 20,
+    cloudLevel = 10, 
+    cloudCutoff = .93  
+
+
+function generateWorld( game, chunk, x, y, z ) {
   var dx = chunk.shape[0]
   var dy = chunk.shape[1]
   var dz = chunk.shape[2]
-  // default case - just return 1/2 for everything below y=5
+  // xyz is the origin of the chunk in world coords
   for (var i=0; i<dx; ++i) {
     for (var k=0; k<dz; ++k) {
-      // simple heightmap
-      var cx = (x+i)/xzScale
-      var cz = (z+k)/xzScale
-      var height = Math.round( yScale * simplex.noise2D(cx,cz) )
-      // height = -yscale..yscale
+      // simple heightmap across x/z
+      var cx = (x+i)/terrainXZ
+      var cz = (z+k)/terrainXZ
+      var height = terrainY * simplex.noise2D(cx,cz) >> 0
       for (var j=0; j<dy; ++j) {
-        var cy = y + j
-        // default to air/dirt
-        var dirt = noa.registry.getBlockID('dirt')
-        var blockID = (cy > height) ? 0 : dirt
-        // for surface blocks arbitrarily set id=1,2,3..
-        if (cy==height) { 
-          var ix = cy + 4
-          blockID = (ix<1) ? 1 : ix
-        }
-        chunk.set( i,j,k, blockID )
+        var id = decideBlockID( x+i, y+j, z+k, height )
+        chunk.set( i,j,k, id )
       }
     }
   }
 }
 
-},{"simplex-noise":187}],7:[function(require,module,exports){
+function decideBlockID( x, y, z, groundLevel ) {
+  if (y<groundLevel) return stoneID
+  if (y==groundLevel) {
+    if (y < -4) return stoneID
+    if (y < -3) return dirtID
+    if (y < -2) return grassID
+    if (y>4) return leafID
+    return 2+y+block1ID
+  }
+  if (y < cloudLevel) return 0
+  // ad-hoc clouds
+  var cloud = simplex.noise3D(x/cloudXZ, y/cloudY, z/cloudXZ)
+  if (y<cloudLevel+10) cloud *= (y-cloudLevel)/10
+  if (cloud > cloudCutoff) return cloudID
+  return 0
+}
+
+
+},{"simplex-noise":186}],6:[function(require,module,exports){
 module.exports = add;
 
 /**
@@ -586,7 +564,7 @@ function add(out, a, b) {
     out[2] = a[2] + b[2]
     return out
 }
-},{}],8:[function(require,module,exports){
+},{}],7:[function(require,module,exports){
 module.exports = angle
 
 var fromValues = require('./fromValues')
@@ -615,7 +593,7 @@ function angle(a, b) {
     }     
 }
 
-},{"./dot":15,"./fromValues":17,"./normalize":26}],9:[function(require,module,exports){
+},{"./dot":14,"./fromValues":16,"./normalize":25}],8:[function(require,module,exports){
 module.exports = clone;
 
 /**
@@ -631,7 +609,7 @@ function clone(a) {
     out[2] = a[2]
     return out
 }
-},{}],10:[function(require,module,exports){
+},{}],9:[function(require,module,exports){
 module.exports = copy;
 
 /**
@@ -647,7 +625,7 @@ function copy(out, a) {
     out[2] = a[2]
     return out
 }
-},{}],11:[function(require,module,exports){
+},{}],10:[function(require,module,exports){
 module.exports = create;
 
 /**
@@ -662,7 +640,7 @@ function create() {
     out[2] = 0
     return out
 }
-},{}],12:[function(require,module,exports){
+},{}],11:[function(require,module,exports){
 module.exports = cross;
 
 /**
@@ -682,7 +660,7 @@ function cross(out, a, b) {
     out[2] = ax * by - ay * bx
     return out
 }
-},{}],13:[function(require,module,exports){
+},{}],12:[function(require,module,exports){
 module.exports = distance;
 
 /**
@@ -698,7 +676,7 @@ function distance(a, b) {
         z = b[2] - a[2]
     return Math.sqrt(x*x + y*y + z*z)
 }
-},{}],14:[function(require,module,exports){
+},{}],13:[function(require,module,exports){
 module.exports = divide;
 
 /**
@@ -715,7 +693,7 @@ function divide(out, a, b) {
     out[2] = a[2] / b[2]
     return out
 }
-},{}],15:[function(require,module,exports){
+},{}],14:[function(require,module,exports){
 module.exports = dot;
 
 /**
@@ -728,7 +706,7 @@ module.exports = dot;
 function dot(a, b) {
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
-},{}],16:[function(require,module,exports){
+},{}],15:[function(require,module,exports){
 module.exports = forEach;
 
 var vec = require('./create')()
@@ -773,7 +751,7 @@ function forEach(a, stride, offset, count, fn, arg) {
         
         return a
 }
-},{"./create":11}],17:[function(require,module,exports){
+},{"./create":10}],16:[function(require,module,exports){
 module.exports = fromValues;
 
 /**
@@ -791,7 +769,7 @@ function fromValues(x, y, z) {
     out[2] = z
     return out
 }
-},{}],18:[function(require,module,exports){
+},{}],17:[function(require,module,exports){
 module.exports = {
   create: require('./create')
   , clone: require('./clone')
@@ -826,7 +804,7 @@ module.exports = {
   , rotateZ: require('./rotateZ')
   , forEach: require('./forEach')
 }
-},{"./add":7,"./angle":8,"./clone":9,"./copy":10,"./create":11,"./cross":12,"./distance":13,"./divide":14,"./dot":15,"./forEach":16,"./fromValues":17,"./inverse":19,"./length":20,"./lerp":21,"./max":22,"./min":23,"./multiply":24,"./negate":25,"./normalize":26,"./random":27,"./rotateX":28,"./rotateY":29,"./rotateZ":30,"./scale":31,"./scaleAndAdd":32,"./set":33,"./squaredDistance":34,"./squaredLength":35,"./subtract":36,"./transformMat3":37,"./transformMat4":38,"./transformQuat":39}],19:[function(require,module,exports){
+},{"./add":6,"./angle":7,"./clone":8,"./copy":9,"./create":10,"./cross":11,"./distance":12,"./divide":13,"./dot":14,"./forEach":15,"./fromValues":16,"./inverse":18,"./length":19,"./lerp":20,"./max":21,"./min":22,"./multiply":23,"./negate":24,"./normalize":25,"./random":26,"./rotateX":27,"./rotateY":28,"./rotateZ":29,"./scale":30,"./scaleAndAdd":31,"./set":32,"./squaredDistance":33,"./squaredLength":34,"./subtract":35,"./transformMat3":36,"./transformMat4":37,"./transformQuat":38}],18:[function(require,module,exports){
 module.exports = inverse;
 
 /**
@@ -842,7 +820,7 @@ function inverse(out, a) {
   out[2] = 1.0 / a[2]
   return out
 }
-},{}],20:[function(require,module,exports){
+},{}],19:[function(require,module,exports){
 module.exports = length;
 
 /**
@@ -857,7 +835,7 @@ function length(a) {
         z = a[2]
     return Math.sqrt(x*x + y*y + z*z)
 }
-},{}],21:[function(require,module,exports){
+},{}],20:[function(require,module,exports){
 module.exports = lerp;
 
 /**
@@ -878,7 +856,7 @@ function lerp(out, a, b, t) {
     out[2] = az + t * (b[2] - az)
     return out
 }
-},{}],22:[function(require,module,exports){
+},{}],21:[function(require,module,exports){
 module.exports = max;
 
 /**
@@ -895,7 +873,7 @@ function max(out, a, b) {
     out[2] = Math.max(a[2], b[2])
     return out
 }
-},{}],23:[function(require,module,exports){
+},{}],22:[function(require,module,exports){
 module.exports = min;
 
 /**
@@ -912,7 +890,7 @@ function min(out, a, b) {
     out[2] = Math.min(a[2], b[2])
     return out
 }
-},{}],24:[function(require,module,exports){
+},{}],23:[function(require,module,exports){
 module.exports = multiply;
 
 /**
@@ -929,7 +907,7 @@ function multiply(out, a, b) {
     out[2] = a[2] * b[2]
     return out
 }
-},{}],25:[function(require,module,exports){
+},{}],24:[function(require,module,exports){
 module.exports = negate;
 
 /**
@@ -945,7 +923,7 @@ function negate(out, a) {
     out[2] = -a[2]
     return out
 }
-},{}],26:[function(require,module,exports){
+},{}],25:[function(require,module,exports){
 module.exports = normalize;
 
 /**
@@ -969,7 +947,7 @@ function normalize(out, a) {
     }
     return out
 }
-},{}],27:[function(require,module,exports){
+},{}],26:[function(require,module,exports){
 module.exports = random;
 
 /**
@@ -991,7 +969,7 @@ function random(out, scale) {
     out[2] = z * scale
     return out
 }
-},{}],28:[function(require,module,exports){
+},{}],27:[function(require,module,exports){
 module.exports = rotateX;
 
 /**
@@ -1021,7 +999,7 @@ function rotateX(out, a, b, c){
 
     return out
 }
-},{}],29:[function(require,module,exports){
+},{}],28:[function(require,module,exports){
 module.exports = rotateY;
 
 /**
@@ -1051,7 +1029,7 @@ function rotateY(out, a, b, c){
   
     return out
 }
-},{}],30:[function(require,module,exports){
+},{}],29:[function(require,module,exports){
 module.exports = rotateZ;
 
 /**
@@ -1081,7 +1059,7 @@ function rotateZ(out, a, b, c){
   
     return out
 }
-},{}],31:[function(require,module,exports){
+},{}],30:[function(require,module,exports){
 module.exports = scale;
 
 /**
@@ -1098,7 +1076,7 @@ function scale(out, a, b) {
     out[2] = a[2] * b
     return out
 }
-},{}],32:[function(require,module,exports){
+},{}],31:[function(require,module,exports){
 module.exports = scaleAndAdd;
 
 /**
@@ -1116,7 +1094,7 @@ function scaleAndAdd(out, a, b, scale) {
     out[2] = a[2] + (b[2] * scale)
     return out
 }
-},{}],33:[function(require,module,exports){
+},{}],32:[function(require,module,exports){
 module.exports = set;
 
 /**
@@ -1134,7 +1112,7 @@ function set(out, x, y, z) {
     out[2] = z
     return out
 }
-},{}],34:[function(require,module,exports){
+},{}],33:[function(require,module,exports){
 module.exports = squaredDistance;
 
 /**
@@ -1150,7 +1128,7 @@ function squaredDistance(a, b) {
         z = b[2] - a[2]
     return x*x + y*y + z*z
 }
-},{}],35:[function(require,module,exports){
+},{}],34:[function(require,module,exports){
 module.exports = squaredLength;
 
 /**
@@ -1165,7 +1143,7 @@ function squaredLength(a) {
         z = a[2]
     return x*x + y*y + z*z
 }
-},{}],36:[function(require,module,exports){
+},{}],35:[function(require,module,exports){
 module.exports = subtract;
 
 /**
@@ -1182,7 +1160,7 @@ function subtract(out, a, b) {
     out[2] = a[2] - b[2]
     return out
 }
-},{}],37:[function(require,module,exports){
+},{}],36:[function(require,module,exports){
 module.exports = transformMat3;
 
 /**
@@ -1200,7 +1178,7 @@ function transformMat3(out, a, m) {
     out[2] = x * m[2] + y * m[5] + z * m[8]
     return out
 }
-},{}],38:[function(require,module,exports){
+},{}],37:[function(require,module,exports){
 module.exports = transformMat4;
 
 /**
@@ -1221,7 +1199,7 @@ function transformMat4(out, a, m) {
     out[2] = (m[2] * x + m[6] * y + m[10] * z + m[14]) / w
     return out
 }
-},{}],39:[function(require,module,exports){
+},{}],38:[function(require,module,exports){
 module.exports = transformQuat;
 
 /**
@@ -1250,7 +1228,7 @@ function transformQuat(out, a, q) {
     out[2] = iz * qw + iw * -qz + ix * -qy - iy * -qx
     return out
 }
-},{}],40:[function(require,module,exports){
+},{}],39:[function(require,module,exports){
 
 var aabb = require('aabb-3d')
 var vec3 = require('gl-vec3')
@@ -1261,7 +1239,6 @@ var EventEmitter = require('events').EventEmitter
 var createContainer = require('./lib/container')
 var createRendering = require('./lib/rendering')
 var createWorld = require('./lib/world')
-var createMesher = require('./lib/mesher')
 var createInputs = require('./lib/inputs')
 var createPhysics = require('./lib/physics')
 var createControls = require('./lib/controls')
@@ -1284,7 +1261,7 @@ var defaults = {
 
 /*
  *    Main game engine object
- *  Emits: tick, beforeRender
+ *  Emits: tick
 */
 
 function Engine(opts) {
@@ -1306,9 +1283,6 @@ function Engine(opts) {
 
   // rendering manager - abstracts all draws to 3D context
   this.rendering = createRendering(this, opts, this.container.canvas)
-
-  // mesh chunk of world data and hand off to renderer
-  this.mesher = createMesher( this, opts )
 
   // physics engine - solves collisions, properties, etc.
   this.physics = createPhysics( this, opts )
@@ -1336,7 +1310,8 @@ function Engine(opts) {
     opts.playerWidth, opts.playerHeight,
     null, null,     // no mesh, no meshOffset, 
     {}, true,       // empty data object, do physics
-    true, true      // collideTerrain, collideEntities
+    true, true,     // collideTerrain, collideEntities
+    true            // shadow
   )
   this.playerEntity.body.gravityMultiplier = 2 // less floaty
   this.playerEntity.body.autoStep = opts.playerAutoStep // auto step onto blocks
@@ -1349,7 +1324,10 @@ function Engine(opts) {
 
   // Set up block picking and fire events
   this.blockTestDistance = opts.blockTestDistance || 10
-  this._traceWorldRay = raycast.bind(null, this.world)
+  var getBlockAccessor = {
+    getBlock: this.world.getBlockID.bind(this.world)
+  }
+  this._traceWorldRay = raycast.bind(null, getBlockAccessor)
 
 
 
@@ -1363,7 +1341,7 @@ function Engine(opts) {
   window.vec3 = vec3
   var debug = false
   this.inputs.bind( 'debug', 'Z' )
-  this.inputs.down.on('debug', function() {
+  this.inputs.down.on('debug', function onDebug() {
     debug = !debug
     if (debug) scene.debugLayer.show(); else scene.debugLayer.hide();
   })
@@ -1384,6 +1362,7 @@ Engine.prototype.tick = function() {
   var dt = this._tickRate    // fixed timesteps!
   this.world.tick(dt)        // chunk creation/removal
   this.rendering.tick(dt)    // deferred remeshing of updated chunks
+  this.controls.tickZoom(dt) // ticks camera zoom based on scroll events
   this.controls.tickPhysics(dt)  // applies movement forces
   this.physics.tick(dt)      // iterates physics
   this.setBlockTargets()     // finds targeted blocks, and highlights one if needed
@@ -1399,14 +1378,11 @@ Engine.prototype.render = function(framePart) {
     // for now only move camera when pointerlock or mousedown. TODO: revisit?
     this.controls.tickCamera()
   }
-  var scroll = this.inputs.state.scrolly
-  if (scroll) this.rendering.zoomInOrOut(scroll)
-  // clears cumulative move/scroll inputs
-  this.inputs.tick()
+  // clear cumulative mouse inputs
+  // TODO: do this, or give inputs tickMouse/tickScroll methods?
+  this.inputs.state.dx = this.inputs.state.dy = 0
   // update entity meshes to account for time since last physics tick
   this.entities.updateEntitiesForRender(dt)
-  // event for anyone who needs updated entities
-  this.emit('beforeRender', dt)
   // render whole scene
   this.rendering.render(dt)
 }
@@ -1420,20 +1396,20 @@ Engine.prototype.render = function(framePart) {
 
 Engine.prototype.getBlock = function(x, y, z) {
   var arr = (x.length) ? x : [x,y,z]
-  return this.world.getBlock( arr[0], arr[1], arr[2] );
+  return this.world.getBlockID( arr[0], arr[1], arr[2] );
 }
 
 Engine.prototype.setBlock = function(id, x, y, z) {
   // skips the entity collision check
   var arr = (x.length) ? x : [x,y,z]
-  this.world.setBlock( id, arr[0], arr[1], arr[2] );
+  this.world.setBlockID( id, arr[0], arr[1], arr[2] );
 }
 
 Engine.prototype.addBlock = function(id, x, y, z) {
   // add a new terrain block, if nothing blocks the terrain there
   var arr = (x.length) ? x : [x,y,z]
   if (this.entities.isTerrainBlocked(arr[0], arr[1], arr[2])) return
-  this.world.setBlock( id, arr[0], arr[1], arr[2] );
+  this.world.setBlockID( id, arr[0], arr[1], arr[2] );
 }
 
 Engine.prototype.getTargetBlock = function() {
@@ -1464,6 +1440,7 @@ Engine.prototype.getCameraVector = function() {
 
 // Determine which block if any is targeted and within range
 Engine.prototype.pick = function(pos, vec, dist) {
+  if (dist===0) return null
   pos = pos || this.getPlayerEyePosition()
   vec = vec || this.getCameraVector()
   dist = dist || this.blockTestDistance
@@ -1516,439 +1493,110 @@ Engine.prototype.setPlayerMesh = function(mesh, meshOffset) {
 
 
 
-},{"./lib/container":41,"./lib/controls":42,"./lib/entities":43,"./lib/inputs":44,"./lib/mesher":45,"./lib/physics":46,"./lib/registry":47,"./lib/rendering":48,"./lib/world":49,"aabb-3d":50,"events":192,"extend":62,"gl-vec3":87,"inherits":109,"ndarray":110,"voxel-raycast":186}],41:[function(require,module,exports){
+},{"./lib/container":41,"./lib/controls":42,"./lib/entities":43,"./lib/inputs":44,"./lib/physics":45,"./lib/registry":46,"./lib/rendering":47,"./lib/world":48,"aabb-3d":49,"events":191,"extend":61,"gl-vec3":86,"inherits":108,"ndarray":109,"voxel-raycast":185}],40:[function(require,module,exports){
 'use strict';
 
-var extend = require('extend')
-var createGameShell = require('game-shell')
-var inherits = require('inherits')
-var EventEmitter = require('events').EventEmitter
+var ndarray = require('ndarray')
 
+window.ndarray = ndarray
 
-module.exports = function(noa, opts) {
-  return new Container(noa, opts)
-}
-
-/*
- *  Container module
- *    Wraps game-shell module and manages HTML container, canvas, etc.
- *    Emits: DOMready
-*/
-
-function Container(noa, opts) {
-  opts = opts || {}
-  this._noa = noa
-  this._element = opts.domElement || createContainerDiv()
-  this._shell = createShell( this._element, opts )
-  this.canvas = getOrCreateCanvas(this._element)
-  
-  this._shell.on('init', onShellInit.bind(null,this))
-}
-
-inherits(Container, EventEmitter)
-
-
-
-/*
- *   SHELL EVENTS
-*/ 
-
-function onShellInit(self) {
-  // create shell listeners that drive engine functions
-  var noa = self._noa
-  var shell = self._shell
-  shell.on('tick',   noa.tick.bind(noa) )
-  shell.on('render', noa.render.bind(noa) )
-  shell.on('resize', noa.rendering.resize.bind(noa.rendering) )
-  // let other components know DOM is ready
-  self.emit( 'DOMready' )
-}
-
-
-/*
- *   PUBLIC API 
-*/ 
-
-Container.prototype.appendTo = function(htmlElement) {
-  this._element.appendChild( htmlElement )
-}
-
-
-
-
-
-/*
- *   INTERNALS
-*/ 
-
-
-
-function createContainerDiv() {
-  // based on github.com/mikolalysenko/game-shell - makeDefaultContainer()
-  var container = document.createElement("div")
-  container.tabindex = 1
-  container.style.position = "absolute"
-  container.style.left = "0px"
-  container.style.right = "0px"
-  container.style.top = "0px"
-  container.style.bottom = "0px"
-  container.style.height = "100%"
-  container.style.overflow = "hidden"
-  document.body.appendChild(container)
-  document.body.style.overflow = "hidden" //Prevent bounce
-  document.body.style.height = "100%"
-  container.id = 'noa-container'
-  return container
-}
-
-
-function createShell(container, _opts) {
-  var shellDefaults = {
-    pointerLock: true,
-    preventDefaults: false
-  }
-  var opts = extend( shellDefaults, _opts )
-  opts.element = container
-  var shell = createGameShell(opts)
-  shell.preventDefaults = opts.preventDefaults
-  return shell
-}
-
-function getOrCreateCanvas(el) {
-  // based on github.com/stackgl/gl-now - default canvas
-  var canvas = el.querySelector('canvas')
-  if (!canvas) {
-    canvas = document.createElement('canvas')
-    canvas.style.position = "absolute"
-    canvas.style.left = "0px"
-    canvas.style.top = "0px"
-    canvas.style.height = "100%"
-    canvas.style.width = "100%"
-    canvas.id = 'noa-canvas'
-    el.appendChild(canvas)
-  }
-  return canvas
-}
-
-
-
-
-
-},{"events":192,"extend":62,"game-shell":75,"inherits":109}],42:[function(require,module,exports){
-'use strict';
-
-var createController = require('voxel-fps-controller')
-var extend = require('extend')
-
-module.exports = function(noa, opts) {
-  return makeControls(noa, opts)
-}
-
-/*
- *    Simple wrapper module for the controller library
- *
- *  Also adds some logic to zoom camera in and out from player entity
- *
-*/
-
-var defaults = {
-  babylonCamera: true,  // needed for Babylon.js camera.  TODO: abstractify?
-  rotationScale: 0.0025
-}
-
-
-function makeControls(noa, opts) {
-  opts = extend( {}, defaults, opts )
-  var stateObj = noa.inputs.state
-  var controls = createController(opts, stateObj)
-  return controls
-}
-
-
-
-
-},{"extend":62,"voxel-fps-controller":112}],43:[function(require,module,exports){
-'use strict';
-
-var extend = require('extend')
-var aabb = require('aabb-3d')
-var vec3 = require('gl-vec3')
-var boxIntersect = require('box-intersect')
-var inherits = require('inherits')
-var EventEmitter = require('events').EventEmitter
-
-module.exports = function(noa, opts) {
-  return new EntityManager(noa, opts)
-}
-
-var defaults = {
-
-}
+module.exports = Chunk
 
 
 /* 
- *  Wrangles entities.
- *    An entity is anything with a physics body, bounding box, or mesh
- *    Entities emit: tick, collideTerrain, collideEntity
-*/
-
-function EntityManager(noa, opts) {
-  this.noa = noa
-  var _opts = extend(defaults, opts)
-
-  this.entities = []
-  this._toRemove = []
-
-  // internals
-  this._lerpPlayerMeshFrames = 0
-}
-var proto = EntityManager.prototype
-
-
-/*
- *    ENTITY MANAGER API
-*/
-
-proto.tick = function(dt) {
-  // handle any deferred entities that need removing
-  doDeferredRemovals(this)
-  // entity-entity collisions
-  doEntityCollisions(this)
-  // call tick functions
-  for (var i=0; i<this.entities.length; ++i) {
-    this.entities[i].emit('tick',dt)
-  }
-}
-
-
-proto.updateEntitiesForRender = function(dt) {
-  // update meshes to physics positions, advanced into the future by dt
-  // dt is time (ms) since physics engine tick, to avoid temporal aliasing
-  // http://gafferongames.com/game-physics/fix-your-timestep/
-  var pos = vec3.create()
-  for (var i=0; i<this.entities.length; ++i) {
-    var ent = this.entities[i]
-    if (ent.mesh && ent.body) {
-      // position = aabb.base + offset + dt * velocity
-      vec3.add(pos, ent.body.aabb.base, ent.meshOffset)
-      vec3.scaleAndAdd(pos, pos, ent.body.velocity, dt/1000)
-      ent.mesh.position.x = pos[0]
-      ent.mesh.position.z = pos[2]
-      if (ent==this.noa.playerEntity && this._lerpPlayerMeshFrames) {
-        // soften player mesh movement for a few frames after autosteps
-        ent.mesh.position.y += .4 * (pos[1] - ent.mesh.position.y)
-        this._lerpPlayerMeshFrames--
-      } else {
-        ent.mesh.position.y = pos[1]
-      }
-    }
-  }
-}
-
-
-
-proto.isTerrainBlocked = function(x,y,z) {
-  // checks if terrain location is blocked by entities
-  var newbb = new aabb( [x,y,z], [1,1,1] )
-  for (var i=0; i<this.entities.length; ++i) {
-    if (this.entities[i]._collideTerrain) {
-      var bb = this.entities[i].bb
-      if (bb.intersects(newbb) && ! bb.touches(newbb)) return true;
-    }
-  }
-  return false
-}
-
-
-// Add a new entity to be managed.
-// shape modeled only as an AABB, 'position' at center of bottom face.
-// meshCreateFcn is of signature 'function(scene)'
-proto.add = function(position, width, height, // required
-                      mesh, meshOffset, 
-                      data, doPhysics,
-                      collideTerrain, collideEntities ) {
-  // bounding box
-  var bb = new aabb([position[0]-width/2, position[1], position[2]-width/2],
-                    [width, height, width])
-  // rigid body in physics simulator
-  var body = (doPhysics) ? this.noa.physics.addBody(bb) : null
-  // entity class (data struct more or less)
-  var ent = new Entity(bb, body, mesh, meshOffset, data, 
-                       collideTerrain, collideEntities )
-  this.entities.push(ent)
-  return ent
-}
-
-
-proto.remove = function(ent) {
-  // defer removal until next tick function, since entities are likely to
-  // call this on themselves during collsion handlers or tick functions
-  if (this._toRemove.indexOf(ent) == -1) this._toRemove.push(ent);
-}
-
-proto._onPlayerAutoStep = function() {
-  // When player entity, autosteps, lerp its mesh position for a few frames
-  this._lerpPlayerMeshFrames = 4
-}
-
-/*
- *  INTERNALS
-*/
-
-function doDeferredRemovals(self) {
-  while (self._toRemove.length) {
-    var ent = self._toRemove.pop()
-    var i = self.entities.indexOf(ent)
-    if (i>-1) self.entities.splice(i,1)
-    if (ent.mesh) ent.mesh.dispose()
-    if (ent.body) self.noa.physics.removeBody(ent.body)
-    // in case it helps the GC
-    ent.removeAllListeners()
-    ent.body = ent.mesh = ent.bb = ent.data = null
-  }
-}
-
-
-function doEntityCollisions(self) {
-  // build array of [lo, lo, hi, hi] arrays
-  var intervals = [], indexes = []
-  for (var i=0; i<self.entities.length; ++i) {
-    var e = self.entities[i]
-    if (e._collideEntities) {
-      var lo = e.bb.base
-      var s = e.bb.vec
-      intervals.push([ lo[0], lo[1], lo[2], lo[0]+s[0], lo[1]+s[1], lo[2]+s[2] ])
-      indexes.push(i)
-    }
-  }
-  // collision test them and send events
-  boxIntersect( intervals, entEntCollision.bind(null, self.entities, indexes) )
-}
-function entEntCollision(entities, indexes, i, j) {
-  var ei = entities[indexes[i]]
-  var ej = entities[indexes[j]]
-  ei.emit('collideEntity', ej)
-  ej.emit('collideEntity', ei)
-}
-
-
-
-/*
- *  ENTITY struct:
+ *   BabylonJS Voxel Chunk
  *
- *  bb:       bounding box (effectively overridden by physics body if there is one)
- *  body:     optional reference to rigid body managed by physics engine
- *  mesh:     optional reference to mesh managed by renderer
- *  meshOffset: offset from base of aabb to mesh's registration point
- *  data:     arbtitrary object
- *  collTerr: whether to prevent new terrain overlapping the entity
- *  collEnt:  whether to collision test with other entities
+ *  Stores block ids and related data for each voxel within chunk
+ *  
+ *  
+ *  Stores, from right to left:
+ *    12 bits of voxel ID
+ *    1 bit solidity (i.e. physics-wise)
+ *    1 bit opacity (whether voxel obscures neighboring faces)
+ *
 */
 
-function Entity(bb, body, mesh, meshOffset, data, 
-                 collTerr, collEnt) {
-  this.body = body || null
-  this.mesh = mesh || null
-  this.meshOffset = meshOffset || [0,0,0]
-  this.data = data || null
-  this.bb = (body) ? body.aabb : bb
-  this._collideEntities = collEnt
-  this._collideTerrain = collTerr
-  // if physics terrain collisions needed, wrap physics engine's onCollide
-  if (body && collTerr) {
-    this.body.onCollide = onTerrainCollide.bind(null,this)
+
+// internal data representation
+var ID_BITS = 12
+var ID_MASK = (1<<ID_BITS)-1
+var SOLID_BIT  = 1<<ID_BITS
+var OPAQUE_BIT = 1<<ID_BITS+1
+
+
+
+
+/*
+ *
+ *    Chunk constructor
+ *
+*/
+
+function Chunk( noa, i, j, k, size ) {
+  // packed data storage
+  var s = size+2 // 1 block of padding on each side
+  var arr = new Uint16Array(s*s*s)
+  this.array = new ndarray( arr, [s, s, s] )
+  this.i = i
+  this.j = j
+  this.k = k
+  this.size = size
+
+  // lookup arrays mapping block ID to block properties
+  this._solidLookup = noa.registry._blockSolidity
+  this._opaqueLookup = noa.registry._blockOpacity
+  // view onto block data without padding
+  this._unpaddedView = this.array.lo(1,1,1).hi(size,size,size)
+}
+
+
+
+
+/*
+ *
+ *    Chunk API
+ *
+*/
+
+// get/set deal with block IDs, so that this class acts like an ndarray
+
+Chunk.prototype.get = function( x, y, z ) {
+  return ID_MASK & this._unpaddedView.get(x,y,z)
+}
+
+Chunk.prototype.set = function( x, y, z, id ) {
+  var solid  = (this._solidLookup[id])  ? SOLID_BIT  : 0
+  var opaque = (this._opaqueLookup[id]) ? OPAQUE_BIT : 0
+  this._unpaddedView.set( x,y,z, id | solid | opaque )
+}
+
+
+Chunk.prototype.initData = function() {
+  // assuming data has been filled with block IDs, pack it with opacity/etc.
+
+  var arr = this.array.data,
+      len = arr.length,
+      sol = this._solidLookup,
+      op = this._opaqueLookup,
+      id, s, o
+  for (var i=0; i<len; ++i) {
+    id = arr[i]
+    s = sol[id] ? SOLID_BIT  : 0
+    o = op[id]  ? OPAQUE_BIT : 0
+    arr[i] = id | s | o
   }
 }
-inherits(Entity, EventEmitter)
-function onTerrainCollide(entity, impulse) {
-  entity.emit('collideTerrain', impulse)
-}
-
-
-// Entity APIs:
-
-// get "feet" position - center of bottom face
-Entity.prototype.getPosition = function() {
-  var loc = this.bb.base
-  var size = this.bb.vec
-  return [ loc[0]+size[0]/2, loc[1], loc[2]+size[2]/2 ]
-}
 
 
 
 
 
 
-},{"aabb-3d":50,"box-intersect":52,"events":192,"extend":62,"gl-vec3":87,"inherits":109}],44:[function(require,module,exports){
-'use strict';
+// create a Submesh (class below) of meshes needed for this chunk
 
-var createInputs = require('game-inputs')
-var extend = require('extend')
-
-
-module.exports = function(noa, opts, element) {
-  return makeInputs(noa, opts, element)
-}
-
-
-var defaultBindings = {
-  bindings: {
-    "forward":  [ "W", "<up>" ],
-    "left":     [ "A", "<left>" ],
-    "backward": [ "S", "<down>" ],
-    "right":    [ "D", "<right>" ],
-    "fire":       "<mouse 1>",
-    "mid-fire": [ "<mouse 2>", "Q" ],
-    "alt-fire": [ "<mouse 3>", "E" ],
-    "jump":       "<space>",
-    "sprint":     "<shift>",
-    "crouch":     "<control>"
-  }
-}
-
-
-function makeInputs(noa, opts, element) {
-  opts = extend( {}, defaultBindings, opts )
-  var inputs = createInputs( element, opts )
-  var b = opts.bindings
-  for (var name in b) {
-    var arr = ( Array.isArray(b[name]) ) ? b[name] : [b[name]]
-    arr.unshift(name)
-    inputs.bind.apply(inputs, arr)
-  }
-  return inputs
-}
-
-
-
-
-
-
-},{"extend":62,"game-inputs":63}],45:[function(require,module,exports){
-'use strict';
-
-var extend = require('extend')
-var ndarray = require('ndarray')
-
-
-module.exports = function(noa, opts) {
-  return new Mesher(noa, opts)
-}
-
-
-function Mesher(noa, _opts) {
-  this.noa = noa
-  // default options
-  var defaults = { }
-  var opts = extend( {}, _opts, opts );
-}
-
-
-//    PUBLIC API
-
-Mesher.prototype.meshChunk = function(chunk, getMaterial, getColor, aoValues, noAO) {
+Chunk.prototype.mesh = function(getMaterial, getColor, doAO, aoValues) {
   if (!aoValues) aoValues = [ 1, 0.75, 0.5 ]
-  return greedyND(chunk, getMaterial, getColor, aoValues, !noAO)
+  return greedyND(this.array, getMaterial, getColor, doAO, aoValues)
 }
 
 
@@ -1965,19 +1613,24 @@ function Submesh(id) {
 
 
 
+
 /*
  *    Greedy voxel meshing algorithm with AO
  *        Meshing based on algo by Mikola Lysenko:
  *        http://0fps.net/2012/07/07/meshing-minecraft-part-2/
+ *        AO part stitched together out of spider webs and dreams
  *    
  *    Arguments:
- *        arr: 3D ndarray of block ID, dimensions X,Y,Z
- *             Assumes for now that truthy values are opaque.
+ *        arr: 3D ndarray of dimensions X,Y,Z
+ *             packed with solidity/opacity booleans in higher bits
  *        getMaterial: function( blockID, dir )
  *             returns a material ID based on block id and which cube face it is
  *             (assume for now that each mat ID should get its own mesh)
- *        aoValues: array of multipliers for AO levels 0-2 (0 is no occlusion)
+ *        getColor: function( materialID )
+ *             looks up a color (3-array) by material ID
+ *             TODO: replace this with a lookup array?
  *        ao: whether or not to bake ambient occlusion into vertex colors
+ *        aoValues: array of multipliers for AO levels 0-2 (0 is no occlusion)
  *
  *    Return object: array of mesh objects keyed by material ID
  *        arr[id].vertices - ints, range 0 .. X/Y/Z
@@ -2000,19 +1653,25 @@ var d, u, v,
     x, q, m1, m2, pos, norm,
     matID, mesh, c, triDir, vs
 
-var t0=0, t1=0, t3=0, dateStart, date0, date1, date2, ct=0
+var DEBUG = 1
+if (DEBUG) { var t0=0, t1=0, t3=0, timeStart, time0, time1, time2, ct=0 }
 
-function greedyND(arr, getMaterial, getColor, aoValues, doAO) {
-dateStart = new Date()
-  var submeshes = [] // return object, holder for Submeshes
+function greedyND(arr, getMaterial, getColor, doAO, aoValues) {
+
+  if (DEBUG) timeStart = performance.now()
+
+  // return object, holder for Submeshes
+  var submeshes = []
+
   //Sweep over each axis, mapping axes to [d,u,v]
   for(d=0; d<3; ++d) {
     u = (d+1)%3
     v = (d+2)%3
 
     // make transposed ndarray so index i is the axis we're sweeping
-    arrT = arr.transpose(d,u,v)
-    len0 = arrT.shape[0]
+    var tmp = arr.transpose(d,u,v)
+    arrT = tmp.lo(1,1,1).hi(tmp.shape[0]-2, tmp.shape[1]-2, tmp.shape[2]-2)
+    len0 = arrT.shape[0]-1
     len1 = arrT.shape[1]
     len2 = arrT.shape[2]
 
@@ -2022,68 +1681,85 @@ dateStart = new Date()
       aomask = new Int8Array(len1*len2)
     }
 
-    // iterate along current axis
+    // iterate along current major axis
     for( i=0; i<=len0; ++i ) {
-date0 = new Date()
-      // iterate across 2d plane, with n being index into masks
+
+      if (DEBUG) time0 = performance.now()
+
+      // iterate across ith 2d plane, with n being index into masks
       n = 0;
       for(k=0; k<len2; ++k) {
         for(j=0; j<len1; ++j) {
 
-          // set mask to 0 if no face needed (if id0/id1 have equal truthiness),
-          // otherwise to material ID, with sign indicating face direction
-          id0 = ( i<1     ? false : arrT.get(i-1, j, k))
-          id1 = ( i==len0 ? false : arrT.get(  i, j, k))
-          cmp = id0 ? (id1 ? 0 : 1) : (id1 ? -1 : 0)
-          if (cmp === 0) {
-            mask[n] = 0
+          // mask[n] represents the face needed between i,j,k and i+1,j,k
+          // for now, assume we never have two faces in both directions
+          // So mask value is face material id, sign is direction
+
+          id0 = arrT.get(i-1, j, k)
+          id1 = arrT.get(  i, j, k)
+
+          var op0 = id0 & OPAQUE_BIT
+          var op1 = id1 & OPAQUE_BIT
+
+          // draw no face if both blocks are opaque, or if ids match
+          // otherwise, draw a face if one block is opaque or the other is air
+
+          if (id0===id1 || op0&&op1) {
+            maskVal = 0
           } else {
-            // convert id. face is 0..5 ==> +x, -x, +y, -y, +z, -z 
-            block = (id0) ? id0 : id1
-            dir = d*2 + (cmp>0 ? 0 : 1)
-            mask[n] = cmp * getMaterial(block,dir)
+            if (op0 || id1===0) {
+              id = id0 & ID_MASK
+              maskVal =  getMaterial(id, d*2)
+            }
+            if (op1 || id0===0) {
+              id = id1 & ID_MASK
+              maskVal = -getMaterial(id, d*2+1)
+            }
           }
+          mask[n] = maskVal
 
+          // if doing AO, for each box that needs a face precalculate the 
+          // occluded-ness of its neighbors (on side the face points)
 
-          if (mask[n] && doAO) {
-            // construct ao mask from data on the non-opaque side of the face
-            l = (mask[n]>0) ? i : i-1
-            if (l<0 || l==len0) aomask[n] = 0
-            else {
+          if (maskVal && doAO) {
 
-              // construct aomask - mask of opacity of neighbors in "l" plane
+            l = (maskVal>0) ? i : i-1
+            
+            if (arrT.get(l,j,k)) {
+              // face points into non-zero block, so treat as fully occluded
+              aomask[n] = 255 // i.e. (1<<8)-1, or 8 bits of occlusion
+            } else {
+              // construct aomask - mask of nonzero-ness of neighbors in "l" plane
               // shape: 
               //       1     2     4   ^ K
               //     128           8   +> J
               //      64    32    16
               ao = 0
-              jpos = (j>0)
-              jneg = (j<len1-1)
-              if (k>0) {
-                ao |= 
-                  (         arrT.get( l,   j, k-1 ) ? 32 : 0 ) |
-                  ( jpos && arrT.get( l, j-1, k-1 ) ? 64 : 0 ) |
-                  ( jneg && arrT.get( l, j+1, k-1 ) ? 16 : 0 )  
-              }
-              if (k<len2-1) {
-                ao |= 
-                  (         arrT.get( l,   j, k+1 ) ?  2 : 0 ) |
-                  ( jpos && arrT.get( l, j-1, k+1 ) ?  1 : 0 ) |
-                  ( jneg && arrT.get( l, j+1, k+1 ) ?  4 : 0 ) 
-              }
+
               ao |= 
-                ( jpos  && arrT.get( l, j-1, k ) ? 128 : 0 ) |
-                ( jneg  && arrT.get( l, j+1, k ) ?   8 : 0 ) 
+                (arrT.get(l, j-1, k+1)  ?   1 : 0)  |
+                (arrT.get(l,   j, k+1)  ?   2 : 0)  |
+                (arrT.get(l, j+1, k+1)  ?   4 : 0)  |
+                (arrT.get(l, j-1,   k)  ? 128 : 0)  |
+                (arrT.get(l, j+1,   k)  ?   8 : 0)  |
+                (arrT.get(l, j-1, k-1)  ?  64 : 0)  |
+                (arrT.get(l,   j, k-1)  ?  32 : 0)  |
+                (arrT.get(l, j+1, k-1)  ?  16 : 0) 
 
               aomask[n] = ao
             }
+
 
           }
           // done, advance mask index
           ++n
         }
       }
-date1=new Date()
+
+      if (DEBUG) time1=performance.now()
+
+
+
       // Masks are set, now step through them generating meshes
       n = 0
       for(k=0; k<len2; ++k) {
@@ -2213,16 +1889,25 @@ date1=new Date()
           }
         }
       }
-date2 = new Date(); t0 += date1-date0; t1+=date2-date1
+
+      if (DEBUG) time2 = performance.now();
+      t0 += time1-time0; t1+=time2-time1
+
     }
   }
+
+  if (DEBUG) {
+    t3 += time2-timeStart; ct++
+    console.log('avg masking:', f(t0/ct),
+                ' - meshing:', f(t1/ct),
+                ' - overall', f(t3/ct) )
+  }
+
   // done, return array of submeshes
-  t3 += date2-dateStart; ct++
-//  console.log('t0', t0, 't1', t1, '     t0/t1',t0/t1, '    avg',t3/ct)
   return submeshes
 }
 
-
+function f(n) { return n.toFixed(2) }
 
 
 //
@@ -2253,7 +1938,496 @@ function pushAOColor( colors, baseCol, ao, aoVals ) {
 
 
 
-},{"extend":62,"ndarray":110}],46:[function(require,module,exports){
+
+
+
+
+
+},{"ndarray":109}],41:[function(require,module,exports){
+'use strict';
+
+var extend = require('extend')
+var createGameShell = require('game-shell')
+var inherits = require('inherits')
+var EventEmitter = require('events').EventEmitter
+
+
+module.exports = function(noa, opts) {
+  return new Container(noa, opts)
+}
+
+/*
+ *  Container module
+ *    Wraps game-shell module and manages HTML container, canvas, etc.
+ *    Emits: DOMready
+*/
+
+function Container(noa, opts) {
+  opts = opts || {}
+  this._noa = noa
+  this._element = opts.domElement || createContainerDiv()
+  this._shell = createShell( this._element, opts )
+  this.canvas = getOrCreateCanvas(this._element)
+  
+  this._shell.on('init', onShellInit.bind(null,this))
+}
+
+inherits(Container, EventEmitter)
+
+
+
+/*
+ *   SHELL EVENTS
+*/ 
+
+function onShellInit(self) {
+  // create shell listeners that drive engine functions
+  var noa = self._noa
+  var shell = self._shell
+  shell.on('tick',   noa.tick.bind(noa) )
+  shell.on('render', noa.render.bind(noa) )
+  shell.on('resize', noa.rendering.resize.bind(noa.rendering) )
+  // let other components know DOM is ready
+  self.emit( 'DOMready' )
+}
+
+
+/*
+ *   PUBLIC API 
+*/ 
+
+Container.prototype.appendTo = function(htmlElement) {
+  this._element.appendChild( htmlElement )
+}
+
+
+
+
+
+/*
+ *   INTERNALS
+*/ 
+
+
+
+function createContainerDiv() {
+  // based on github.com/mikolalysenko/game-shell - makeDefaultContainer()
+  var container = document.createElement("div")
+  container.tabindex = 1
+  container.style.position = "absolute"
+  container.style.left = "0px"
+  container.style.right = "0px"
+  container.style.top = "0px"
+  container.style.bottom = "0px"
+  container.style.height = "100%"
+  container.style.overflow = "hidden"
+  document.body.appendChild(container)
+  document.body.style.overflow = "hidden" //Prevent bounce
+  document.body.style.height = "100%"
+  container.id = 'noa-container'
+  return container
+}
+
+
+function createShell(container, _opts) {
+  var shellDefaults = {
+    pointerLock: true,
+    preventDefaults: false
+  }
+  var opts = extend( shellDefaults, _opts )
+  opts.element = container
+  var shell = createGameShell(opts)
+  shell.preventDefaults = opts.preventDefaults
+  return shell
+}
+
+function getOrCreateCanvas(el) {
+  // based on github.com/stackgl/gl-now - default canvas
+  var canvas = el.querySelector('canvas')
+  if (!canvas) {
+    canvas = document.createElement('canvas')
+    canvas.style.position = "absolute"
+    canvas.style.left = "0px"
+    canvas.style.top = "0px"
+    canvas.style.height = "100%"
+    canvas.style.width = "100%"
+    canvas.id = 'noa-canvas'
+    el.appendChild(canvas)
+  }
+  return canvas
+}
+
+
+
+
+
+},{"events":191,"extend":61,"game-shell":74,"inherits":108}],42:[function(require,module,exports){
+'use strict';
+
+var createController = require('voxel-fps-controller')
+var extend = require('extend')
+
+module.exports = function(noa, opts) {
+  return makeControls(noa, opts)
+}
+
+/*
+ *    Simple wrapper module for the controller library
+ *
+ *  Also decorate lib with logic to set camera zoom from mouse scrolling
+ *
+*/
+
+var defaults = {
+  babylonCamera: true,  // needed for Babylon.js camera.  TODO: abstractify?
+  rotationScale: 0.0025,
+  // camera 'zoom' stuff
+  minCameraZoom: 0,
+  maxCameraZoom: 10,
+  cameraZoomStep: 1.5,
+}
+
+
+function makeControls(noa, opts) {
+  opts = extend( {}, defaults, opts )
+  
+  var stateObj = noa.inputs.state
+  var controls = createController(opts, stateObj)
+  
+  controls.zoomMin = opts.minCameraZoom
+  controls.zoomMax = opts.maxCameraZoom
+  controls.zoomStep = opts.cameraZoomStep
+  controls.tickZoom = tickZoom.bind(null, noa)
+  
+  return controls
+}
+
+
+
+function tickZoom(noa) {
+  // process any (cumulative) scroll inputs and then clear
+  var scroll = noa.inputs.state.scrolly
+  if (scroll === 0) return
+  noa.inputs.state.scrolly = 0
+  
+  // handle zoom controls
+  var self = noa.controls
+  var z = noa.rendering.zoomDistance
+  z += (scroll>0) ? self.zoomStep : -self.zoomStep
+  if (z < self.zoomMin) z = self.zoomMin
+  if (z > self.zoomMax) z = self.zoomMax
+  noa.rendering.zoomDistance = z
+}
+
+
+
+},{"extend":61,"voxel-fps-controller":111}],43:[function(require,module,exports){
+'use strict';
+
+var extend = require('extend')
+var aabb = require('aabb-3d')
+var vec3 = require('gl-vec3')
+var boxIntersect = require('box-intersect')
+var inherits = require('inherits')
+var EventEmitter = require('events').EventEmitter
+
+module.exports = function(noa, opts) {
+  return new EntityManager(noa, opts)
+}
+
+var defaults = {
+  shadowDistance: 10,
+}
+
+
+/* 
+ *  Wrangles entities.
+ *    An entity is anything with a physics body, bounding box, or mesh
+ *    Entities emit: tick, collideTerrain, collideEntity
+*/
+
+function EntityManager(noa, opts) {
+  this.noa = noa
+  opts = extend(defaults, opts)
+
+  this.shadowDist = opts.shadowDistance
+
+  this.entities = []
+  this._toRemove = []
+
+  // internals
+  this._lerpPlayerMeshFrames = 0
+}
+var proto = EntityManager.prototype
+
+
+
+/*
+ *
+ *    ENTITY MANAGER API
+ *
+*/
+
+proto.tick = function(dt) {
+  // handle any deferred entities that need removing
+  doDeferredRemovals(this)
+  // entity-entity collisions
+  doEntityCollisions(this)
+  // set all shadow heights
+  updateShadowHeights(this)
+  // call tick functions
+  for (var i=0; i<this.entities.length; ++i) {
+    this.entities[i].emit('tick',dt)
+  }
+}
+
+
+proto.updateEntitiesForRender = function(dt) {
+  // update meshes to physics positions, advanced into the future by dt
+  // dt is time (ms) since physics engine tick, to avoid temporal aliasing
+  // http://gafferongames.com/game-physics/fix-your-timestep/
+  var pos = vec3.create()
+  for (var i=0; i<this.entities.length; ++i) {
+    var ent = this.entities[i]
+    if (!ent.mesh) continue
+    if (ent.body) {
+      // position = aabb.base + offset + dt * velocity
+      vec3.add(pos, ent.body.aabb.base, ent.meshOffset)
+      vec3.scaleAndAdd(pos, pos, ent.body.velocity, dt/1000)
+      ent.mesh.position.x = pos[0]
+      ent.mesh.position.z = pos[2]
+      if (ent==this.noa.playerEntity && this._lerpPlayerMeshFrames) {
+        // soften player mesh movement for a few frames after autosteps
+        ent.mesh.position.y += .4 * (pos[1] - ent.mesh.position.y)
+        this._lerpPlayerMeshFrames--
+      } else {
+        ent.mesh.position.y = pos[1]
+      }
+    }
+    if (ent.shadowMesh) {
+      ent.shadowMesh.position.x = ent.mesh.position.x
+      ent.shadowMesh.position.z = ent.mesh.position.z
+    }
+  }
+}
+
+
+
+proto.isTerrainBlocked = function(x,y,z) {
+  // checks if terrain location is blocked by entities
+  var newbb = new aabb( [x,y,z], [1,1,1] )
+  for (var i=0; i<this.entities.length; ++i) {
+    if (this.entities[i].collideTerrain) {
+      var bb = this.entities[i].bb
+      if (bb.intersects(newbb) && ! bb.touches(newbb)) return true;
+    }
+  }
+  return false
+}
+
+
+// Add a new entity to be managed.
+// shape modeled only as an AABB, 'position' at center of bottom face.
+// meshCreateFcn is of signature 'function(scene)'
+proto.add = function(position, width, height, // required
+                      mesh, meshOffset, 
+                      data, doPhysics,
+                      collideTerrain, collideEntities,
+                      shadow ) {
+  // bounding box
+  var bb = new aabb([position[0]-width/2, position[1], position[2]-width/2],
+                    [width, height, width])
+  // rigid body in physics simulator
+  var body = (doPhysics) ? this.noa.physics.addBody(bb) : null
+  // entity class (data struct more or less)
+  var ent = new Entity(bb, body, mesh, meshOffset, data, 
+                       collideTerrain, collideEntities )
+  if (shadow) addShadow(this, ent)
+  this.entities.push(ent)
+  return ent
+}
+
+
+proto.remove = function(ent) {
+  // defer removal until next tick function, since entities are likely to
+  // call this on themselves during collsion handlers or tick functions
+  if (this._toRemove.indexOf(ent) == -1) this._toRemove.push(ent);
+}
+
+proto._onPlayerAutoStep = function() {
+  // When player entity, autosteps, lerp its mesh position for a few frames
+  this._lerpPlayerMeshFrames = 4
+}
+
+
+
+
+/*
+ *
+ *  INTERNALS
+ *
+*/
+
+
+function addShadow(self, ent) {
+  var shadow = self.noa.registry._getMesh('shadow')
+  ent.shadowMesh = shadow.createInstance('shadow')
+}
+
+
+function updateShadowHeights(self) {
+  for (var i=0; i<self.entities.length; ++i) {
+    var e = self.entities[i]
+    if (!e.shadowMesh) continue
+
+    var loc = e.getPosition()
+    var pick = self.noa.pick(loc, [0,-1,0], self.shadowDist)
+    if (pick) {
+      var y = pick.position[1]
+      e.shadowMesh.position.y = y + 0.05
+      var scale = e.bb.vec[0] // TODO: revisit for non-square entities?
+      var dist = loc[1] - y
+      scale *= 0.7 * (1-dist/self.shadowDist)
+      e.shadowMesh.scaling.copyFromFloats(scale, scale, scale)
+      e.shadowMesh.setEnabled(true)
+    } else {
+      e.shadowMesh.setEnabled(false)
+    }
+  }
+}
+
+
+function doDeferredRemovals(self) {
+  while (self._toRemove.length) {
+    var ent = self._toRemove.pop()
+    var i = self.entities.indexOf(ent)
+    if (i>-1) self.entities.splice(i,1)
+    if (ent.mesh) ent.mesh.dispose()
+    if (ent.body) self.noa.physics.removeBody(ent.body)
+    // in case it helps the GC
+    ent.removeAllListeners()
+    ent.body = ent.mesh = ent.bb = ent.data = null
+  }
+}
+
+
+function doEntityCollisions(self) {
+  // build array of [lo, lo, hi, hi] arrays
+  var intervals = [], indexes = []
+  for (var i=0; i<self.entities.length; ++i) {
+    var e = self.entities[i]
+    if (e.collideEntities) {
+      var lo = e.bb.base
+      var s = e.bb.vec
+      intervals.push([ lo[0], lo[1], lo[2], lo[0]+s[0], lo[1]+s[1], lo[2]+s[2] ])
+      indexes.push(i)
+    }
+  }
+  // collision test them and send events
+  boxIntersect( intervals, entEntCollision.bind(null, self.entities, indexes) )
+}
+function entEntCollision(entities, indexes, i, j) {
+  var ei = entities[indexes[i]]
+  var ej = entities[indexes[j]]
+  ei.emit('collideEntity', ej)
+  ej.emit('collideEntity', ei)
+}
+
+
+
+/*
+ *  ENTITY struct:
+ *
+ *  bb:       bounding box (effectively overridden by physics body if there is one)
+ *  body:     optional reference to rigid body managed by physics engine
+ *  mesh:     optional reference to mesh managed by renderer
+ *  meshOffset: offset from base of aabb to mesh's registration point
+ *  data:     arbtitrary object
+ *  collTerr: whether to prevent new terrain overlapping the entity
+ *  collEnt:  whether to collision test with other entities
+*/
+
+function Entity(bb, body, mesh, meshOffset, data, 
+                 collTerr, collEnt) {
+  this.body = body || null
+  this.mesh = mesh || null
+  this.meshOffset = meshOffset || [0,0,0]
+  this.data = data || null
+  this.bb = (body) ? body.aabb : bb
+  this.collideEntities = collEnt
+  this.collideTerrain = collTerr
+  // if physics terrain collisions needed, wrap physics engine's onCollide
+  if (body && collTerr) {
+    this.body.onCollide = onTerrainCollide.bind(null,this)
+  }
+  this.shadowMesh = null
+}
+inherits(Entity, EventEmitter)
+function onTerrainCollide(entity, impulse) {
+  entity.emit('collideTerrain', impulse)
+}
+
+
+// Entity APIs:
+
+// get "feet" position - center of bottom face
+Entity.prototype.getPosition = function() {
+  var loc = this.bb.base
+  var size = this.bb.vec
+  return [ loc[0]+size[0]/2, loc[1], loc[2]+size[2]/2 ]
+}
+
+
+
+
+
+
+},{"aabb-3d":49,"box-intersect":51,"events":191,"extend":61,"gl-vec3":86,"inherits":108}],44:[function(require,module,exports){
+'use strict';
+
+var createInputs = require('game-inputs')
+var extend = require('extend')
+
+
+module.exports = function(noa, opts, element) {
+  return makeInputs(noa, opts, element)
+}
+
+
+var defaultBindings = {
+  bindings: {
+    "forward":  [ "W", "<up>" ],
+    "left":     [ "A", "<left>" ],
+    "backward": [ "S", "<down>" ],
+    "right":    [ "D", "<right>" ],
+    "fire":       "<mouse 1>",
+    "mid-fire": [ "<mouse 2>", "Q" ],
+    "alt-fire": [ "<mouse 3>", "E" ],
+    "jump":       "<space>",
+    "sprint":     "<shift>",
+    "crouch":     "<control>"
+  }
+}
+
+
+function makeInputs(noa, opts, element) {
+  opts = extend( {}, defaultBindings, opts )
+  var inputs = createInputs( element, opts )
+  var b = opts.bindings
+  for (var name in b) {
+    var arr = ( Array.isArray(b[name]) ) ? b[name] : [b[name]]
+    arr.unshift(name)
+    inputs.bind.apply(inputs, arr)
+  }
+  return inputs
+}
+
+
+
+
+
+
+},{"extend":61,"game-inputs":62}],45:[function(require,module,exports){
 'use strict';
 
 var createPhysics = require('voxel-physics-engine')
@@ -2278,7 +2452,7 @@ var defaults = {
 
 function makePhysics(noa, opts) {
   opts = extend( {}, defaults, opts )
-  var blockGetter = noa.world.getBlock.bind( noa.world )
+  var blockGetter = noa.world.getBlockSolidity.bind( noa.world )
   var physics = createPhysics(opts, blockGetter)
   return physics
 }
@@ -2288,7 +2462,7 @@ function makePhysics(noa, opts) {
 
 
 
-},{"extend":62,"voxel-physics-engine":147}],47:[function(require,module,exports){
+},{"extend":61,"voxel-physics-engine":146}],46:[function(require,module,exports){
 'use strict';
 
 var extend = require('extend')
@@ -2311,20 +2485,27 @@ function Registry(noa, opts) {
   var _opts = extend( defaults, opts )
   this._texturePath = _opts.texturePath
 
-  this._blockIDs = {}     // Block registry
+  this._blockIDs = {}       // Block registry
   this._blockMats = []
   this._blockData = []
-  this._matIDs = {}       // Material (texture/color) registry
+  this._blockData = []
+  this._matIDs = {}         // Material (texture/color) registry
   this._matData = []
-  this._meshIDs = {}      // Mesh registry
+  this._meshIDs = {}        // Mesh registry
   this._meshData = []
+  
+  // make several special arrays for often looked-up block properties
+  // (hopefully v8 will inline the lookups..)
+  this._blockSolidity = [false]
+  this._blockTransparency = [true]
+  this._blockOpacity = [false]
 
   // make block type 0 empty space
   this._blockData[0] = null
   
   // define some default values that may be overwritten
   this.registerBlock( 'dirt', 'dirt', {} )
-  this.registerMaterial( 'dirt', [0.4, 0.4, 0.4], null )
+  this.registerMaterial( 'dirt', [0.4, 0.3, 0], null )
 }
 
 
@@ -2334,11 +2515,13 @@ function Registry(noa, opts) {
 
 // material can be: a single material name, an array [top, bottom, sides],
 // or a 6-array: [ +x, -x, +y, -y, +z, -z ]
-Registry.prototype.registerBlock = function(name, material, properties) {
+Registry.prototype.registerBlock = function(name, material, properties,
+                                             solidity, opacity, transparency ) {
   // allow overwrites, for now anyway
   var id = this._blockIDs[name] || this._blockData.length
   this._blockIDs[name] = id
   this._blockData[id] = properties || null
+  
   // always store 6 material IDs per blockID, so material lookup is monomorphic
   for (var i=0; i<6; ++i) {
     var matname
@@ -2350,6 +2533,12 @@ Registry.prototype.registerBlock = function(name, material, properties) {
     if (!matname) throw new Error('Register block: "material" must be a material name, or an array of 3 or 6 of them.')
     this._blockMats[id*6 + i] = lazyGetMatID(this,matname)
   }
+  
+  // boolean args default to solid/opaque/nontransparent
+  this._blockSolidity[id]     = (solidity===undefined)     ? true : !!solidity
+  this._blockOpacity[id]      = (opacity===undefined)      ? true : !!opacity
+  this._blockTransparency[id] = !!transparency
+  
   return id
 }
 // pre-register mat names so that blocks/mats can be registered in either order
@@ -2361,12 +2550,13 @@ function lazyGetMatID(reg, name) {
 
 
 // register a material - name, [color, texture]
-Registry.prototype.registerMaterial = function(name, color, textureURL) {
+Registry.prototype.registerMaterial = function(name, color, textureURL, hasAlpha) {
   var id = this._matIDs[name] || this._matData.length
   this._matIDs[name] = id
   this._matData[id] = {
     color: color ? color : [1,1,1],
-    texture: textureURL ? this._texturePath+textureURL : null
+    texture: textureURL ? this._texturePath+textureURL : null,
+    hasAlpha: !!hasAlpha
   }
   return id
 }
@@ -2412,6 +2602,22 @@ Registry.prototype.getBlockID = function(name) {
   return this._blockIDs[name]
 }
 
+// block solidity (as in physics)
+Registry.prototype.getBlockSolidity = function(id) {
+  return this._blockSolidity[id]
+}
+
+// block transparency - i.e. whether the mesh has alpha, like glass/water
+Registry.prototype.getBlockTransparency = function(id) {
+  return this._blockTransparency[id]
+}
+
+// block opacity - whether it obscures the whole voxel (dirt) or 
+// can be partially seen through (like a fencepost, etc)
+Registry.prototype.getBlockOpacity = function(id) {
+  return this._blockOpacity[id]
+}
+
 
 
 
@@ -2441,11 +2647,16 @@ Registry.prototype.getMaterialTexture = function(matID) {
   return this._matData[matID].texture
 }
 
+// look up material's hasAlpha property
+Registry.prototype.getMaterialHasAlpha = function(matID) {
+  return this._matData[matID].hasAlpha
+}
 
 
 
 
-},{"extend":62}],48:[function(require,module,exports){
+
+},{"extend":61}],47:[function(require,module,exports){
 'use strict';
 /* globals BABYLON */
 
@@ -2474,23 +2685,23 @@ var defaults = {
   lightDiffuse:     [ 1, 1, 1 ],
   lightSpecular:    [ 1, 1, 1 ],
   groundLightColor: [ 0.5, 0.5, 0.5 ],
-  // camera 'zoom' stuff
   minCameraZoom: 0,
-  maxCameraZoom: 10,
-  cameraZoomStep: 1.5,
-  cameraZoomSpeed: .3
+  cameraZoomSpeed: .3,
+  useAO: true,
+  AOmultipliers: [ 1, 0.8, 0.6 ],
 }
+
+
+
 
 
 function Rendering(noa, _opts, canvas) {
   this.noa = noa
   var opts = extend( {}, defaults, _opts )
-  this._zoomDistance = opts.minCameraZoom
-  this._zoomTarget = opts.minCameraZoom
-  this._zoomMin = opts.minCameraZoom
-  this._zoomMax = opts.maxCameraZoom
-  this._zoomStep = opts.cameraZoomStep
-  this._zoomSpeed = opts.cameraZoomSpeed
+  this.zoomDistance = opts.minCameraZoom      // zoom setting
+  this._cappedZoom = this.zoomDistance        // zoom, capped by obstacles
+  this._currentZoom = this.zoomDistance       // current actual zoom level
+  this._cameraZoomSpeed = opts.cameraZoomSpeed
 
   // set up babylon scene
   initScene(this, canvas, opts)
@@ -2501,6 +2712,11 @@ function Rendering(noa, _opts, canvas) {
   noa.world.on('chunkAdded',   onChunkAdded.bind(null, this) )
   noa.world.on('chunkRemoved', onChunkRemoved.bind(null, this) )
   noa.world.on('chunkChanged', onChunkChanged.bind(null, this) )
+
+  // internals
+  this._materialCache = {}
+  this.doAO = !!opts.useAO
+  this.aoVals = opts.AOmultipliers
 
   // for debugging
   window.scene = this._scene
@@ -2513,13 +2729,20 @@ function Rendering(noa, _opts, canvas) {
 // Constructor helper - set up the Babylon.js scene and basic components
 function initScene(self, canvas, opts) {
   if (!BABYLON) throw new Error('BABYLON.js engine not found!')
+
   // init internal properties
   self._engine = new BABYLON.Engine(canvas, opts.antiAlias)
   self._scene =  new BABYLON.Scene( self._engine )
+
   // camera and empty mesh to hold camera rotations
-  self._rotationHolder = new BABYLON.Mesh('',self._scene)
+  self._rotationHolder = new BABYLON.Mesh('rotHolder',self._scene)
+  self._cameraHolder = new BABYLON.Mesh('camHolder',self._scene)
   self._camera = new BABYLON.FreeCamera('c', new vec3(0,0,0), self._scene)
+  self._camera.parent = self._cameraHolder
   self._camera.minZ = .01
+  self._cameraHolder.visibility = false
+  self._rotationHolder.visibility = false
+
   // apply some defaults
   self._light = new BABYLON.HemisphericLight('l', new vec3(0.1,1,0.3), self._scene )
   function arrToColor(a) { return new col3( a[0], a[1], a[2] )  }
@@ -2528,6 +2751,15 @@ function initScene(self, canvas, opts) {
   self._light.diffuse =     arrToColor( opts.lightDiffuse )
   self._light.specular =    arrToColor( opts.lightSpecular )
   self._light.groundColor = arrToColor( opts.groundLightColor )
+
+  // create a mesh to serve as the built-in shadow mesh
+  var disc = BABYLON.Mesh.CreateDisc('shadow base', 0.5, 30, self._scene)
+  disc.rotation.x = halfPi
+  self.noa.registry.registerMesh('shadow', disc)
+  disc.material = new BABYLON.StandardMaterial('shadMat', self._scene)
+  disc.material.diffuseColor = new col3(0,0,0)
+  disc.material.specularColor = new col3(0,0,0)
+  disc.material.alpha = 0.5
 }
 
 
@@ -2543,8 +2775,13 @@ Rendering.prototype.getScene = function() {
 
 // tick function manages deferred meshing
 Rendering.prototype.tick = function(dt) {
-  findMaxZoomDistance(this)
-  doDeferredMeshing(this)
+  setCameraZoom(this)
+
+  // chunk a mesh, or a few if they're fast
+  var time = performance.now()
+  while(this._chunksToMesh.length && (performance.now() < time+3)) {
+    doDeferredMeshing(this)
+  }
 }
 
 Rendering.prototype.render = function(dt) {
@@ -2587,15 +2824,6 @@ Rendering.prototype.setCameraRotation = function(x,y) {
   rot.y = y
 }
 
-// change 'zoom' level based on scroll inputs
-Rendering.prototype.zoomInOrOut = function(dir) {
-  if (!dir) return
-  var z = this._zoomTarget
-  z += (dir>0) ? this._zoomStep : -this._zoomStep
-  if (z<this._zoomMin) z = this._zoomMin
-  if (z>this._zoomMax) z = this._zoomMax
-  this._zoomTarget = z
-}
 
 
 
@@ -2607,24 +2835,32 @@ Rendering.prototype.zoomInOrOut = function(dir) {
 Rendering.prototype.makeEntitySpriteMesh = function(matname, cellw, cellh, cellnum) {
   var id = this.noa.registry.getMaterialId(matname)
   var url = this.noa.registry.getMaterialTexture(id)
-  var tex = new BABYLON.Texture(url, this._scene, true, true, 
+  var tex = new BABYLON.Texture(url, this._scene, true, true,
                                 BABYLON.Texture.NEAREST_SAMPLINGMODE)
   tex.hasAlpha = true
-  var mat = new BABYLON.StandardMaterial('', this._scene)
   var mesh = BABYLON.Mesh.CreatePlane('esm', 1, this._scene)
+  // uncached material since cell frame is tied to it
+  var mat = getEntitySpriteMaterial(this._scene).clone()
   mat.diffuseTexture = tex
-  mat.useAlphaFromDiffuseTexture = true
-  mat.specularColor = new col3(0,0,0)
-  mat.emissiveColor = new col3(1,1,1)
-  mat.backFaceCulling = false
   mesh.material = mat
   mesh.billboardMode = BABYLON.Mesh.BILLBOARDMODE_Y
   mesh._cellwidth = cellw
   mesh._cellheight = cellh
   mesh._lastcell = -1
   mesh._setCell = setSpriteMeshCell.bind(mesh)
-//  mesh._setCell(cellnum)
+  //  mesh._setCell(cellnum)
   return mesh
+}
+
+var _spriteMat
+function getEntitySpriteMaterial(scene) {
+  if (!_spriteMat) {
+    _spriteMat = new BABYLON.StandardMaterial('', scene)
+    _spriteMat.specularColor = new col3(0,0,0)
+    _spriteMat.emissiveColor = new col3(1,1,1)
+    _spriteMat.backFaceCulling = false
+  }
+  return _spriteMat
 }
 
 function setSpriteMeshCell(cell) {
@@ -2658,45 +2894,55 @@ Rendering.prototype.makeMeshInstance = function(meshname) {
  *   CHUNK ADD/CHANGE/REMOVE HANDLING
 */ 
 
-function onChunkAdded( self, chunk, id, x, y, z ) {
+function onChunkAdded( self, chunk ){
   // newly created chunks go to the end of the queue
-  var o = { chunk:chunk, id:id, x:x, y:y, z:z }
-  enqueueChunkUniquely( o, self._chunksToMesh, false )
+  enqueueChunkUniquely( chunk, self._chunksToMesh, false )
 }
 
-function onChunkChanged( self, chunk, id, x, y, z ) {
+function onChunkChanged( self, chunk ) {
   // changed chunks go to the head of the queue
-  var o = { chunk:chunk, id:id, x:x, y:y, z:z }
-  enqueueChunkUniquely( o, self._chunksToMesh, true )
+  enqueueChunkUniquely( chunk, self._chunksToMesh, true )
 }
 
-function onChunkRemoved( self, id ) {
-  removeMesh( self, id )
+function onChunkRemoved( self, i, j, k ) {
+  removeMesh( self, [i,j,k].join('|') )
 }
 
 function doDeferredMeshing(self) {
   if (self._chunksToMesh.length===0) return
+  
   // first in queue has priority
-  var obj = self._chunksToMesh.shift()
+  var chunk = self._chunksToMesh.shift()
+  var id = [chunk.i,chunk.j,chunk.k].join('|')
   // remove current version if this is an update to an existing chunk
-  if (self._meshedChunks[obj.id]) removeMesh(self, obj.id)
+  if (self._meshedChunks[id]) removeMesh(self, id)
   // mesh it and add to babylon scene
-  var meshdata = meshChunk(self, obj.chunk)
+  var meshdata = meshChunk(self, chunk)
   if (meshdata.length) {
-    var mesh = makeSubmeshes(self, meshdata, obj.id, obj.x, obj.y, obj.z)
-    self._meshedChunks[obj.id] = mesh
+
+    var s = chunk.size
+    var mesh
+    if (DEBUG_NO_SUBMESHES) {
+      mesh = makeChunkMesh(self, meshdata, id, chunk.i*s, chunk.j*s, chunk.k*s)
+    } else {
+      mesh = makeSubmeshes(self, meshdata, id, chunk.i*s, chunk.j*s, chunk.k*s)
+    }
+
+    self._meshedChunks[id] = mesh
   }
 }
 
 
 /*
+ *
  *   INTERNALS
+ *
 */ 
 
 function enqueueChunkUniquely( obj, queue, infront ) {
   // remove any duplicate chunk descriptor objects
   for (var i=0; i<queue.length; ++i) {
-    if (queue[i].id==obj.id) queue.splice(i--,1);
+    if (queue[i]===obj) queue.splice(i--,1);
   }
   // add to front/end of queue
   if (infront) queue.unshift(obj)
@@ -2714,17 +2960,19 @@ function removeMesh(self, id) {
 // given an updated chunk reference, run it through mesher
 function meshChunk(self, chunk) {
   var noa = self.noa
-  // first pass chunk data to mesher
-  var aovals = [ 1, 0.8, 0.6 ]
-  // TODO: pass in material/colors/chunk metadata somehow
+  var opacityGetter = noa.registry._blockOpacity
   var matGetter = noa.registry.getBlockFaceMaterial.bind(noa.registry)
   var colGetter = noa.registry.getMaterialColor.bind(noa.registry)
-  // returns an array of mesher#Submesh
-  return noa.mesher.meshChunk( chunk, matGetter, colGetter, aovals )
+  // returns an array of chunk#Submesh
+  return chunk.mesh(matGetter, colGetter, self.doAO, self.aoVals )
 }
 
 
-// zoom/camera related internals
+/*
+ *
+ *  zoom/camera related internals
+ *
+*/
 
 function getMeshEyePosition(self) {
   // eye position relative to player mesh (not physics body)
@@ -2733,33 +2981,30 @@ function getMeshEyePosition(self) {
   return pos
 }
 
-function findMaxZoomDistance(self) {
-  // pick backwards from eye position to camera zoom depth
+function setCameraZoom(self) {
+  // find target camera location by raycasting back from 
+  // eye position to camera zoom depth
   var pos = getMeshEyePosition(self)
-  var cam = self.getCameraVector().scaleInPlace(-1)
+  var cam = self.getCameraVector()
   // need gl-vec3 vectors to pass to noa#pick
-  var vpos = glvec3.fromValues(pos.x, pos.y, pos.z)
-  var vcam = glvec3.fromValues(cam.x, cam.y, cam.z)
-  var result = self.noa.pick(vpos, vcam, self._zoomTarget)
-  var z = self._zoomTarget
+  var z = self.zoomDistance
+  var vpos = glvec3.fromValues( pos.x,  pos.y,  pos.z)
+  var vcam = glvec3.fromValues(-cam.x, -cam.y, -cam.z)
+  var result = self.noa.pick(vpos, vcam, z)
   if (result) {
     var dist = glvec3.distance( vpos, result.position )
     dist -= 0.2 // slop to cut down on seeing through floors
-    z = Math.min(dist, self._zoomTarget)
+    z = dist // Math.min(dist, self.zoomDistance)
   }
-  self._zoomDistance += self._zoomSpeed * (z-self._zoomDistance)
+  self._cappedZoom = z
 }
 
 function updateCamera(self) {
-  // vecs for camera position and camera target behind and in front of player mesh
+  self._currentZoom += self._cameraZoomSpeed * (self._cappedZoom-self._currentZoom)
   var pos = getMeshEyePosition(self)
-  var cam = self.getCameraVector()
-  // camera pos target = eyePosition - cameraVec * zoomDistance
-  var cpos = pos.subtract( cam.scale(self._zoomDistance) )
-  var tgt = pos.add( cam.scale(.1) )
-  // lerp actual camera position/target towards values
-  self._camera.position.copyFrom(cpos)
-  self._camera.setTarget(tgt)
+  self._cameraHolder.position.copyFrom(pos)
+  self._cameraHolder.rotation.copyFrom(self._rotationHolder.rotation)
+  self._camera.position.z = -self._currentZoom
   fadePlayerMesh(self)
 }
 
@@ -2769,7 +3014,7 @@ function fadePlayerMesh(self) {
   if (!m) return
   var show = 3
   var hide = 2
-  var z = self._zoomDistance
+  var z = self._currentZoom
   m.visibility = (z>hide)
   if (m.material) {
     m.material.alpha = (z>show) ? 1 : (z<=hide) ? 0 : (z-hide)/(show-hide)
@@ -2807,6 +3052,15 @@ function getHighlightMesh(rendering) {
 
 
 
+// manage materials/textures to avoid duplicating them
+function getOrCreateMaterial(self, name, createFcn) {
+  var mat = self._materialCache[name]
+  if (!mat) {
+    mat = createFcn()
+    self._materialCache[name] = mat
+  }
+  return mat
+}
 
 
 
@@ -2828,7 +3082,7 @@ function makeSubmeshes(self, meshdata, id, x, y, z) {
       uvs       = []
   // loop through inputs collecting data (array of arrays)
   meshdata.map(function(mdat) {
-    // mdat is instance of Mesher#Submesh
+    // mdat is instance of Chunk#Submesh
     ids.push(       mdat.id )
     positions.push( mdat.positions )
     indices.push(   mdat.indices )
@@ -2875,28 +3129,39 @@ function makeSubmeshes(self, meshdata, id, x, y, z) {
   return mesh
 }
 
-function getMultiMaterial( rendering ) {
-  var scene = rendering._scene
-  var multi = rendering.multiMat
-  if (!multi) {
-    // create a multimate to use for terrain..
-    multi = rendering.multiMat = new BABYLON.MultiMaterial("multi", scene)
-    // base material
-    var base = new BABYLON.StandardMaterial("base", scene)
-    // little shine to remind myself this is an engine material
-    base.specularColor = new col3( 0.15, 0.15, 0.15 )
-    // clone a series, each with necessary texture
-    var mats = rendering.noa.registry._matData
+var terrainMultiMat
+function getMultiMaterial( self ) {
+  if (!terrainMultiMat) {
+    // one single multimat for all terrain
+    terrainMultiMat = new BABYLON.MultiMaterial("multi", self._scene)
+    var mats = self.noa.registry._matData
     for (var i=0; i<mats.length; ++i) {
       var dat = mats[i]
-      var mat = base.clone('submat'+i)
-      if (dat.texture) {
-        mat.ambientTexture = new BABYLON.Texture(dat.texture, scene, true,false, BABYLON.Texture.NEAREST_SAMPLINGMODE)
-      }
-      multi.subMaterials[i] = mat
+      var mat = makeTerrainMaterial(self, i)
+      terrainMultiMat.subMaterials[i] = mat
     }
   }
-  return multi
+  return terrainMultiMat
+}
+
+
+// single canonical function to make a Material for a materialID
+function makeTerrainMaterial(self, id) {
+  var mat = new BABYLON.StandardMaterial('terrain'+id, self._scene)
+  mat.specularColor = new col3(0,0,0)
+  var url = self.noa.registry.getMaterialTexture(id)
+  if (url) {
+    var tex = new BABYLON.Texture(url, self._scene, true,false, BABYLON.Texture.NEAREST_SAMPLINGMODE)
+    var alpha = self.noa.registry.getMaterialHasAlpha(id)
+    if (alpha) {
+      tex.hasAlpha = true
+      mat.diffuseTexture = tex
+      mat.useAlphaFromDiffuseTexture = true
+    } else {
+      mat.ambientTexture = tex
+    }
+  }
+  return mat
 }
 
 
@@ -2905,14 +3170,197 @@ function getMultiMaterial( rendering ) {
 
 
 
+var DEBUG_NO_SUBMESHES = 0
+var DEBUG_USE_OCTREES = 0
 
-},{"extend":62,"gl-vec3":87}],49:[function(require,module,exports){
+
+//
+// Given arrays of data for an enmeshed chunk, create a 
+// babylon mesh child meshes for each terrain material
+//
+function makeChunkMesh(self, meshdata, id, x, y, z) {
+  var scene = self._scene
+  // create/position parent mesh
+  var mesh = new BABYLON.Mesh( 'c'+id, scene )
+
+  // meshdata is a sparse array-like object
+  meshdata.map(function(mdat) {
+    var m = new BABYLON.Mesh( 'terr', self._scene )
+
+    if (DEBUG_USE_OCTREES) {
+      m.parent = mesh
+    } else {
+      if (x) m.position.x = x
+      if (y) m.position.y = y
+      if (z) m.position.z = z;
+    }
+
+    var matID = mdat.id
+    var makeMat = makeTerrainMaterial.bind(null,self,matID)
+    m.material = getOrCreateMaterial(self, 'terrain'+matID, makeMat)
+
+    var vdat = new BABYLON.VertexData()
+    vdat.positions = mdat.positions
+    vdat.indices =   mdat.indices
+    vdat.normals =   mdat.normals
+    vdat.colors =    mdat.colors
+    vdat.uvs =       mdat.uvs
+    vdat.applyToMesh( m )
+  })
+
+  if (x) mesh.position.x = x
+  if (y) mesh.position.y = y
+  if (z) mesh.position.z = z
+
+  if (DEBUG_USE_OCTREES) {
+    createOrUpdateOctrees(self, mesh, x, y, z)
+  }
+
+  return mesh
+}
+
+
+
+var tempBlocksCache = {} // TODO: formalize, if this code stays in
+function createOrUpdateOctrees(self, mesh, x, y, z) {
+  //  return
+  var scene = self._scene
+  var octree = scene._selectionOctree
+  if (!octree) {
+    octree = new BABYLON.Octree()
+    octree.blocks = []
+    scene._selectionOctree = octree
+  }
+
+  // group every 3x3 chunks into an OctreeBlock
+  var blockevery = 3
+  var cs = self.noa.world.chunkSize
+  var sx = Math.floor(x/cs/blockevery)
+  var sy = Math.floor(y/cs/blockevery)
+  var sz = Math.floor(z/cs/blockevery)
+  var bid = [sx,sy,sz].join('|')
+  var blockset = tempBlocksCache[bid]
+  if (!blockset) {
+    var bmin = new vec3(  sx,   sy,   sz).scaleInPlace(cs*blockevery)
+    var bmax = new vec3(sx+1, sy+1, sz+1).scaleInPlace(cs*blockevery)
+    blockset = new BABYLON.OctreeBlock(bmin, bmax)
+    //    blockset.blocks = []
+    octree.blocks.push(blockset)
+    tempBlocksCache[bid] = blockset
+  }
+
+  mesh.getChildren().map(function(m) {
+    blockset.entries.push(m)
+  })
+  return
+
+  var min = new vec3(   x,    y,    z)
+  var max = new vec3(x+cs, y+cs, z+cs)
+  var block = new BABYLON.OctreeBlock(min, max)
+  mesh.getChildren().map(function(m) {
+    block.entries.push(m)
+  })
+  blockset.blocks.push(block)
+}
+
+
+
+
+
+
+if (false) {
+  var scene  
+
+
+
+  scene._evaluateActiveMeshes = function () {
+    this.activeCamera._activeMeshes.reset();
+    this._activeMeshes.reset();
+    this._renderingManager.reset();
+    this._processedMaterials.reset();
+    this._activeParticleSystems.reset();
+    this._activeSkeletons.reset();
+    this._boundingBoxRenderer.reset();
+
+    if (!this._frustumPlanes) {
+      this._frustumPlanes = BABYLON.Frustum.GetPlanes(this._transformMatrix);
+    }
+    else {
+      BABYLON.Frustum.GetPlanesToRef(this._transformMatrix, this._frustumPlanes);
+    }
+
+    // Meshes
+    var meshes, len;
+    if (this._selectionOctree) {
+      var selection = this._selectionOctree.select(this._frustumPlanes);
+      meshes = selection.data;
+      len = selection.length;
+    }
+    else {
+      len = this.meshes.length;
+      meshes = this.meshes;
+    }
+
+    for (var meshIndex = 0; meshIndex < len; meshIndex++) {
+      var mesh = meshes[meshIndex];
+      if (mesh.isBlocked) continue
+      this._totalVertices += mesh.getTotalVertices();
+      if (!mesh.isReady()) continue
+
+      mesh.computeWorldMatrix();
+
+      // Intersections
+      if (mesh.actionManager && mesh.actionManager.hasSpecificTriggers([BABYLON.ActionManager.OnIntersectionEnterTrigger, BABYLON.ActionManager.OnIntersectionExitTrigger])) {
+        this._meshesForIntersections.pushNoDuplicate(mesh);
+      }
+
+      // Switch to current LOD
+      var meshLOD = mesh.getLOD(this.activeCamera);
+      if (!meshLOD) continue
+
+      mesh._preActivate();
+
+      //      var check = mesh.isInFrustum(this._frustumPlanes)
+      var check = true
+
+      if (mesh.isEnabled() && mesh.isVisible && mesh.visibility > 0 &&
+          ((mesh.layerMask & this.activeCamera.layerMask) !== 0) && check) {
+        this._activeMeshes.push(mesh);
+        this.activeCamera._activeMeshes.push(mesh);
+        mesh._activate(this._renderId);
+        this._activeMesh(meshLOD);
+      }
+    }
+    // Particle systems
+    var beforeParticlesDate = BABYLON.Tools.Now;
+    if (this.particlesEnabled) {
+      BABYLON.Tools.StartPerformanceCounter("Particles", this.particleSystems.length > 0);
+      for (var particleIndex = 0; particleIndex < this.particleSystems.length; particleIndex++) {
+        var particleSystem = this.particleSystems[particleIndex];
+        if (!particleSystem.isStarted()) {
+          continue;
+        }
+        if (!particleSystem.emitter.position || (particleSystem.emitter && particleSystem.emitter.isEnabled())) {
+          this._activeParticleSystems.push(particleSystem);
+          particleSystem.animate();
+        }
+      }
+      BABYLON.Tools.EndPerformanceCounter("Particles", this.particleSystems.length > 0);
+    }
+    this._particlesDuration += BABYLON.Tools.Now - beforeParticlesDate;
+  };
+
+
+
+}
+},{"extend":61,"gl-vec3":86}],48:[function(require,module,exports){
 'use strict';
 
 var extend = require('extend')
 var ndarray = require('ndarray')
 var inherits = require('inherits')
 var EventEmitter = require('events').EventEmitter
+var Chunk = require('./chunk')
 
 
 module.exports = function(noa, opts) {
@@ -2953,38 +3401,48 @@ inherits( World, EventEmitter )
  *   PUBLIC API 
 */ 
 
-World.prototype.getBlock = function (x,y,z) {
+World.prototype.getBlockID = function (x,y,z) {
   var cs = this.chunkSize
   var i = Math.floor(x/cs)
   var j = Math.floor(y/cs)
   var k = Math.floor(z/cs)
   var chunk = this._chunks[ getChunkID(i,j,k) ]
   if (!chunk) return 0
-  x = (x<0) ? x-i*cs : x%cs
-  y = (y<0) ? y-j*cs : y%cs
-  z = (z<0) ? z-k*cs : z%cs
+  x -= i*cs
+  y -= j*cs
+  z -= k*cs
   return chunk.get( x, y, z )
-  // TODO: above bit could be made faster by constraining chunksize
-  // to be a power of 2, and using math tricks from 
-  // voxel - Chunker#voxelAtCoordinates
+  // TODO: consider constraining chunksize to be power of 2, 
+  // using math tricks from voxel.js: Chunker#voxelAtCoordinates
+}
+
+World.prototype.getBlockSolidity = function (x,y,z) {
+  return this.noa.registry._blockSolidity[ this.getBlockID(x,y,z) ]
+}
+
+World.prototype.getBlockOpacity = function (x,y,z) {
+  return this.noa.registry._blockOpacity[ this.getBlockID(x,y,z) ]
+}
+
+World.prototype.getBlockTransparency = function (x,y,z) {
+  return this.noa.registry._blockTransparency[ this.getBlockID(x,y,z) ]
 }
 
 
-World.prototype.setBlock = function (id,x,y,z) {
-  // TODO: revisit this to share code with getBlock
+World.prototype.setBlockID = function (val,x,y,z) {
   var cs = this.chunkSize
   var i = Math.floor(x/cs)
   var j = Math.floor(y/cs)
   var k = Math.floor(z/cs)
-  var chunk = this._chunks[ getChunkID(i,j,k) ]
-  if (!chunk) return 0
-  x = (x<0) ? x-i*cs : x%cs
-  y = (y<0) ? y-j*cs : y%cs
-  z = (z<0) ? z-k*cs : z%cs
-  chunk.set( x, y, z, id )
-  // alert world
-  this.emit( 'chunkChanged', chunk, getChunkID(i,j,k), cs*i, cs*j, cs*k )
+  x -= i*cs
+  y -= j*cs
+  z -= k*cs
+
+  // if update is on chunk border, update neighbor's padding data too
+  _updateChunkAndBorders(this, i, j, k, cs, x, y, z, val)
 }
+
+
 
 
 
@@ -3000,18 +3458,28 @@ World.prototype.tick = function() {
     updateChunkQueues( this, i, j, k )
   }
   this._lastPlayerChunkID = chunkID
-  
-  // remove a chunk if needed, else, add one if needed
-  if (this._chunksToRemove.length) {
-    var remove = this._chunksToRemove.shift()
-    removeChunk( this, remove[0], remove[1], remove[2] )
-  } else if (this._chunksToAdd.length) {
-    var index = findClosestChunk( i, j, k, this._chunksToAdd )
-    var toadd = this._chunksToAdd.splice(index,1)[0]
-    addNewChunk( this, toadd[0], toadd[1], toadd[2] )
+
+  // add or remove one chunk if needed. If fast, do a couple.
+  var d = performance.now()
+  var notDone = true
+  while(notDone && (performance.now() < d+3)) {
+    notDone = processChunkQueues(this, i, j, k)
   }
 }
 
+function processChunkQueues(self, i, j, k) {
+  if (self._chunksToRemove.length) {
+    var remove = self._chunksToRemove.shift()
+    removeChunk( self, remove[0], remove[1], remove[2] )
+  } else if (self._chunksToAdd.length) {
+    var index = findClosestChunk( i, j, k, self._chunksToAdd )
+    var toadd = self._chunksToAdd.splice(index,1)[0]
+    addNewChunk( self, toadd[0], toadd[1], toadd[2] )
+  } else {
+    return false
+  }
+  return true
+}
 
 
 
@@ -3037,7 +3505,7 @@ function addNewChunk( world, i, j, k ) {
   world._chunks[id] = chunk
   // alert the world
   var cs = world.chunkSize
-  world.emit( 'chunkAdded', chunk, id, cs*i, cs*j, cs*k )
+  world.emit( 'chunkAdded', chunk )
 }
 
 function removeChunk( world, i, j, k ) {
@@ -3045,24 +3513,87 @@ function removeChunk( world, i, j, k ) {
   // ndarrays have no dispose function, so nothing to destroy
   delete world._chunks[id]
   // alert the world
-  world.emit( 'chunkRemoved', id )
+  world.emit( 'chunkRemoved', i, j, k )
 }
 
 
 
+
+
+// for a given chunk (i/j/k) and local location (x/y/z), 
+// update all chunks that need it (including border chunks with the 
+// changed block in their 1-block padding)
+
+function _updateChunkAndBorders(world, i, j, k, size, x, y, z, val) {
+  // can't for the life of me think of a more sensible way to do this...
+  var iBorder = (x===0) ? -1 : (x===size-1) ? 1 : 0
+  var jBorder = (y===0) ? -1 : (y===size-1) ? 1 : 0
+  var kBorder = (z===0) ? -1 : (z===size-1) ? 1 : 0
+  
+  for (var di=-1; di<2; ++di) {
+    for (var dj=-1; dj<2; ++dj) {
+      for (var dk=-1; dk<2; ++dk) {
+        
+        if ((di===0 || di===iBorder) &&
+            (dj===0 || dj===jBorder) &&
+            (dk===0 || dk===kBorder) ) {
+          _modifyBlockData(world, i+di, j+dj, k+dk,
+                           [size, x, -1][di+1], 
+                           [size, y, -1][dj+1], 
+                           [size, z, -1][dk+1], 
+                           val)
+        }
+        
+      }
+    }
+  }
+}
+
+
+
+// internal function to modify a chunk's block
+
+function _modifyBlockData( world, i, j, k, x, y, z, val ) {
+  var id = getChunkID(i,j,k)
+  var chunk = world._chunks[id]
+  if (!chunk) return
+  chunk.set(x, y, z, val)
+  world.emit('chunkChanged', chunk)
+}
+
+
+
+
+var DEBUG = 1
+var genTime = 0, ccTime = 0, genCt = 0, ccCt = 0, t1, t2, t3
 
 // create a given chunk, using the world's generator and chunkSize
 function createChunk( world, i, j, k ) {
+  if (DEBUG) t1 = performance.now()
   // create ndarray to hold the data
   var cs = world.chunkSize
-  var arr = new Uint8Array(cs*cs*cs)
-  var chunk = new ndarray( arr, [cs,cs,cs] )
-  // pass it to generator for actual data generation
-  var gen = world.generator
-  world.generator( world.noa, chunk, i*cs, j*cs, k*cs )
+  var chunk = new Chunk(world.noa, i, j, k, cs)
+  if (DEBUG) t2 = performance.now()
+  // hand raw ndarray to generator function, not wrapper
+  world.generator( world.noa, chunk.array, i*cs-1, j*cs-1, k*cs-1 )
+  if (DEBUG) t3 = performance.now()
+  chunk.initData()
+
+  if (DEBUG) {
+    var gt = t3-t2
+    var ct = performance.now() - t1 - gt
+    genTime += gt
+    ccTime += ct;
+    ++genCt;
+    ++ccCt
+    var id = [chunk.i,chunk.j,chunk.k].join(',')
+    console.log('chunk ', id, ' done. Create/init time: ', 
+                ct.toFixed(2),' (avg. ', (ccTime/ccCt).toFixed(2), ') worldgen: ',
+                gt.toFixed(2),' (avg. ', (genTime/genCt).toFixed(2), ')' )
+  }
+  //  if (dt > 15) throw new Error()
   return chunk
 }
-
 
 
 // check for needed/unneeded chunks around (ci,cj,ck)
@@ -3077,7 +3608,7 @@ function updateChunkQueues( world, ci, cj, ck ) {
       for (var k=ck-add; k<=ck+add; ++k) {
         var id = getChunkID(i,j,k)
         if (chunks[id]) continue
-        enqueueChunk( [i,j,k], world._chunksToAdd )
+        enqueueChunk( [i,j,k], world._chunksToAdd );
       }
     }
   }
@@ -3097,7 +3628,7 @@ function updateChunkQueues( world, ci, cj, ck ) {
 function enqueueChunk( arr, queue ) {
   for (var i=0; i<queue.length; ++i) {
     var qarr = queue[i]
-    if ( arr[0]==qarr[0] && arr[1]==qarr[1] && arr[2]==qarr[2] ) return
+    if ( arr[0]==qarr[0] && arr[1]==qarr[1] && arr[2]==qarr[2] ) return;
   }
   queue.push(arr)
 }
@@ -3145,7 +3676,7 @@ function defaultGenerator( chunk, x, y, z ) {
 
 
 
-},{"events":192,"extend":62,"inherits":109,"ndarray":110}],50:[function(require,module,exports){
+},{"./chunk":40,"events":191,"extend":61,"inherits":108,"ndarray":109}],49:[function(require,module,exports){
 module.exports = AABB
 
 var vec3 = require('gl-matrix').vec3
@@ -3262,7 +3793,7 @@ proto.union = function(aabb) {
 
 
 
-},{"gl-matrix":51}],51:[function(require,module,exports){
+},{"gl-matrix":50}],50:[function(require,module,exports){
 /**
  * @fileoverview gl-matrix - High performance matrix and vector operations
  * @author Brandon Jones
@@ -7512,7 +8043,7 @@ if(typeof(exports) !== 'undefined') {
   })(shim.exports);
 })(this);
 
-},{}],52:[function(require,module,exports){
+},{}],51:[function(require,module,exports){
 'use strict'
 
 module.exports = boxIntersectWrapper
@@ -7651,7 +8182,7 @@ function boxIntersectWrapper(arg0, arg1, arg2) {
       throw new Error('box-intersect: Invalid arguments')
   }
 }
-},{"./lib/intersect":54,"./lib/sweep":58,"typedarray-pool":61}],53:[function(require,module,exports){
+},{"./lib/intersect":53,"./lib/sweep":57,"typedarray-pool":60}],52:[function(require,module,exports){
 'use strict'
 
 var DIMENSION   = 'd'
@@ -7796,7 +8327,7 @@ function bruteForcePlanner(full) {
 
 exports.partial = bruteForcePlanner(false)
 exports.full    = bruteForcePlanner(true)
-},{}],54:[function(require,module,exports){
+},{}],53:[function(require,module,exports){
 'use strict'
 
 module.exports = boxIntersectIter
@@ -8291,7 +8822,7 @@ function boxIntersectIter(
     }
   }
 }
-},{"./brute":53,"./median":55,"./partition":56,"./sweep":58,"bit-twiddle":59,"typedarray-pool":61}],55:[function(require,module,exports){
+},{"./brute":52,"./median":54,"./partition":55,"./sweep":57,"bit-twiddle":58,"typedarray-pool":60}],54:[function(require,module,exports){
 'use strict'
 
 module.exports = findMedian
@@ -8434,7 +8965,7 @@ function findMedian(d, axis, start, end, boxes, ids) {
     start, mid, boxes, ids,
     boxes[elemSize*mid+axis])
 }
-},{"./partition":56}],56:[function(require,module,exports){
+},{"./partition":55}],55:[function(require,module,exports){
 'use strict'
 
 module.exports = genPartition
@@ -8455,7 +8986,7 @@ function genPartition(predicate, args) {
         .replace('$', predicate))
   return Function.apply(void 0, fargs)
 }
-},{}],57:[function(require,module,exports){
+},{}],56:[function(require,module,exports){
 'use strict';
 
 //This code is extracted from ndarray-sort
@@ -8692,7 +9223,7 @@ function quickSort(left, right, data) {
     quickSort(less, great, data);
   }
 }
-},{}],58:[function(require,module,exports){
+},{}],57:[function(require,module,exports){
 'use strict'
 
 module.exports = {
@@ -9127,7 +9658,7 @@ red_loop:
     }
   }
 }
-},{"./sort":57,"bit-twiddle":59,"typedarray-pool":61}],59:[function(require,module,exports){
+},{"./sort":56,"bit-twiddle":58,"typedarray-pool":60}],58:[function(require,module,exports){
 /**
  * Bit twiddling hacks for JavaScript.
  *
@@ -9333,7 +9864,7 @@ exports.nextCombination = function(v) {
 }
 
 
-},{}],60:[function(require,module,exports){
+},{}],59:[function(require,module,exports){
 "use strict"
 
 function dupe_array(count, value, i) {
@@ -9383,7 +9914,7 @@ function dupe(count, value) {
 }
 
 module.exports = dupe
-},{}],61:[function(require,module,exports){
+},{}],60:[function(require,module,exports){
 (function (global,Buffer){
 'use strict'
 
@@ -9600,7 +10131,7 @@ exports.clearCache = function clearCache() {
   }
 }
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {},require("buffer").Buffer)
-},{"bit-twiddle":59,"buffer":188,"dup":60}],62:[function(require,module,exports){
+},{"bit-twiddle":58,"buffer":187,"dup":59}],61:[function(require,module,exports){
 var hasOwn = Object.prototype.hasOwnProperty;
 var toString = Object.prototype.toString;
 var undefined;
@@ -9683,7 +10214,7 @@ module.exports = function extend() {
 };
 
 
-},{}],63:[function(require,module,exports){
+},{}],62:[function(require,module,exports){
 'use strict';
 
 var vkey = require('vkey')
@@ -9910,7 +10441,7 @@ function XOR(a,b) {
 
 
 
-},{"./lib/mousewheel-polyfill.js":64,"events":192,"vkey":65}],64:[function(require,module,exports){
+},{"./lib/mousewheel-polyfill.js":63,"events":191,"vkey":64}],63:[function(require,module,exports){
 //Adapted from here: https://developer.mozilla.org/en-US/docs/Web/Reference/Events/wheel?redirectlocale=en-US&redirectslug=DOM%2FMozilla_event_reference%2Fwheel
 
 var prefix = "", _addEventListener, onwheel, support;
@@ -9970,7 +10501,7 @@ module.exports = function( elem, callback, useCapture ) {
     _addWheelListener( elem, "MozMousePixelScroll", callback, useCapture );
   }
 };
-},{}],65:[function(require,module,exports){
+},{}],64:[function(require,module,exports){
 var ua = typeof window !== 'undefined' ? window.navigator.userAgent : ''
   , isOSX = /OS X/.test(ua)
   , isOpera = /Opera/.test(ua)
@@ -10108,7 +10639,7 @@ for(i = 112; i < 136; ++i) {
   output[i] = 'F'+(i-111)
 }
 
-},{}],66:[function(require,module,exports){
+},{}],65:[function(require,module,exports){
 if(typeof window.performance === "object") {
   if(window.performance.now) {
     module.exports = function() { return window.performance.now() }
@@ -10121,9 +10652,9 @@ if(typeof window.performance === "object") {
   module.exports = function() { return (new Date()).getTime() }
 }
 
-},{}],67:[function(require,module,exports){
-module.exports=require(64)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/game-inputs/lib/mousewheel-polyfill.js":64}],68:[function(require,module,exports){
+},{}],66:[function(require,module,exports){
+module.exports=require(63)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/game-inputs/lib/mousewheel-polyfill.js":63}],67:[function(require,module,exports){
 // http://paulirish.com/2011/requestanimationframe-for-smart-animating/
 // http://my.opera.com/emoller/blog/2011/12/20/requestanimationframe-for-smart-er-animating
  
@@ -10153,7 +10684,7 @@ if (!window.cancelAnimationFrame)
         clearTimeout(id);
     };
 
-},{}],69:[function(require,module,exports){
+},{}],68:[function(require,module,exports){
 "use strict"
 
 function compileSearch(funcName, predicate, reversed, extraArgs, useNdarray, earlyOut) {
@@ -10215,7 +10746,7 @@ module.exports = {
   eq: compileBoundsSearch("-", true, "EQ", true)
 }
 
-},{}],70:[function(require,module,exports){
+},{}],69:[function(require,module,exports){
 /*!
   * domready (c) Dustin Diaz 2014 - License MIT
   */
@@ -10247,7 +10778,7 @@ module.exports = {
 
 });
 
-},{}],71:[function(require,module,exports){
+},{}],70:[function(require,module,exports){
 "use strict"
 
 function invert(hash) {
@@ -10261,7 +10792,7 @@ function invert(hash) {
 }
 
 module.exports = invert
-},{}],72:[function(require,module,exports){
+},{}],71:[function(require,module,exports){
 "use strict"
 
 function iota(n) {
@@ -10273,7 +10804,7 @@ function iota(n) {
 }
 
 module.exports = iota
-},{}],73:[function(require,module,exports){
+},{}],72:[function(require,module,exports){
 "use strict"
 
 function unique_pred(list, compare) {
@@ -10332,9 +10863,9 @@ function unique(list, compare, sorted) {
 
 module.exports = unique
 
-},{}],74:[function(require,module,exports){
-module.exports=require(65)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/game-inputs/node_modules/vkey/index.js":65}],75:[function(require,module,exports){
+},{}],73:[function(require,module,exports){
+module.exports=require(64)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/game-inputs/node_modules/vkey/index.js":64}],74:[function(require,module,exports){
 "use strict"
 
 var EventEmitter = require("events").EventEmitter
@@ -11073,73 +11604,73 @@ function createShell(options) {
 
 module.exports = createShell
 
-},{"./lib/hrtime-polyfill.js":66,"./lib/mousewheel-polyfill.js":67,"./lib/raf-polyfill.js":68,"binary-search-bounds":69,"domready":70,"events":192,"invert-hash":71,"iota-array":72,"uniq":73,"util":196,"vkey":74}],76:[function(require,module,exports){
+},{"./lib/hrtime-polyfill.js":65,"./lib/mousewheel-polyfill.js":66,"./lib/raf-polyfill.js":67,"binary-search-bounds":68,"domready":69,"events":191,"invert-hash":70,"iota-array":71,"uniq":72,"util":195,"vkey":73}],75:[function(require,module,exports){
+module.exports=require(6)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/add.js":6}],76:[function(require,module,exports){
 module.exports=require(7)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/add.js":7}],77:[function(require,module,exports){
+},{"./dot":83,"./fromValues":85,"./normalize":94,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/angle.js":7}],77:[function(require,module,exports){
 module.exports=require(8)
-},{"./dot":84,"./fromValues":86,"./normalize":95,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/angle.js":8}],78:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/clone.js":8}],78:[function(require,module,exports){
 module.exports=require(9)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/clone.js":9}],79:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/copy.js":9}],79:[function(require,module,exports){
 module.exports=require(10)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/copy.js":10}],80:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/create.js":10}],80:[function(require,module,exports){
 module.exports=require(11)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/create.js":11}],81:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/cross.js":11}],81:[function(require,module,exports){
 module.exports=require(12)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/cross.js":12}],82:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/distance.js":12}],82:[function(require,module,exports){
 module.exports=require(13)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/distance.js":13}],83:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/divide.js":13}],83:[function(require,module,exports){
 module.exports=require(14)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/divide.js":14}],84:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/dot.js":14}],84:[function(require,module,exports){
 module.exports=require(15)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/dot.js":15}],85:[function(require,module,exports){
+},{"./create":79,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/forEach.js":15}],85:[function(require,module,exports){
 module.exports=require(16)
-},{"./create":80,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/forEach.js":16}],86:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/fromValues.js":16}],86:[function(require,module,exports){
 module.exports=require(17)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/fromValues.js":17}],87:[function(require,module,exports){
+},{"./add":75,"./angle":76,"./clone":77,"./copy":78,"./create":79,"./cross":80,"./distance":81,"./divide":82,"./dot":83,"./forEach":84,"./fromValues":85,"./inverse":87,"./length":88,"./lerp":89,"./max":90,"./min":91,"./multiply":92,"./negate":93,"./normalize":94,"./random":95,"./rotateX":96,"./rotateY":97,"./rotateZ":98,"./scale":99,"./scaleAndAdd":100,"./set":101,"./squaredDistance":102,"./squaredLength":103,"./subtract":104,"./transformMat3":105,"./transformMat4":106,"./transformQuat":107,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/index.js":17}],87:[function(require,module,exports){
 module.exports=require(18)
-},{"./add":76,"./angle":77,"./clone":78,"./copy":79,"./create":80,"./cross":81,"./distance":82,"./divide":83,"./dot":84,"./forEach":85,"./fromValues":86,"./inverse":88,"./length":89,"./lerp":90,"./max":91,"./min":92,"./multiply":93,"./negate":94,"./normalize":95,"./random":96,"./rotateX":97,"./rotateY":98,"./rotateZ":99,"./scale":100,"./scaleAndAdd":101,"./set":102,"./squaredDistance":103,"./squaredLength":104,"./subtract":105,"./transformMat3":106,"./transformMat4":107,"./transformQuat":108,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/index.js":18}],88:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/inverse.js":18}],88:[function(require,module,exports){
 module.exports=require(19)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/inverse.js":19}],89:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/length.js":19}],89:[function(require,module,exports){
 module.exports=require(20)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/length.js":20}],90:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/lerp.js":20}],90:[function(require,module,exports){
 module.exports=require(21)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/lerp.js":21}],91:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/max.js":21}],91:[function(require,module,exports){
 module.exports=require(22)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/max.js":22}],92:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/min.js":22}],92:[function(require,module,exports){
 module.exports=require(23)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/min.js":23}],93:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/multiply.js":23}],93:[function(require,module,exports){
 module.exports=require(24)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/multiply.js":24}],94:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/negate.js":24}],94:[function(require,module,exports){
 module.exports=require(25)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/negate.js":25}],95:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/normalize.js":25}],95:[function(require,module,exports){
 module.exports=require(26)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/normalize.js":26}],96:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/random.js":26}],96:[function(require,module,exports){
 module.exports=require(27)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/random.js":27}],97:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateX.js":27}],97:[function(require,module,exports){
 module.exports=require(28)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateX.js":28}],98:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateY.js":28}],98:[function(require,module,exports){
 module.exports=require(29)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateY.js":29}],99:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateZ.js":29}],99:[function(require,module,exports){
 module.exports=require(30)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateZ.js":30}],100:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/scale.js":30}],100:[function(require,module,exports){
 module.exports=require(31)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/scale.js":31}],101:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/scaleAndAdd.js":31}],101:[function(require,module,exports){
 module.exports=require(32)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/scaleAndAdd.js":32}],102:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/set.js":32}],102:[function(require,module,exports){
 module.exports=require(33)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/set.js":33}],103:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/squaredDistance.js":33}],103:[function(require,module,exports){
 module.exports=require(34)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/squaredDistance.js":34}],104:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/squaredLength.js":34}],104:[function(require,module,exports){
 module.exports=require(35)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/squaredLength.js":35}],105:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/subtract.js":35}],105:[function(require,module,exports){
 module.exports=require(36)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/subtract.js":36}],106:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformMat3.js":36}],106:[function(require,module,exports){
 module.exports=require(37)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformMat3.js":37}],107:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformMat4.js":37}],107:[function(require,module,exports){
 module.exports=require(38)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformMat4.js":38}],108:[function(require,module,exports){
-module.exports=require(39)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformQuat.js":39}],109:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformQuat.js":38}],108:[function(require,module,exports){
 if (typeof Object.create === 'function') {
   // implementation from standard node.js 'util' module
   module.exports = function inherits(ctor, superCtor) {
@@ -11164,7 +11695,7 @@ if (typeof Object.create === 'function') {
   }
 }
 
-},{}],110:[function(require,module,exports){
+},{}],109:[function(require,module,exports){
 (function (Buffer){
 var iota = require("iota-array")
 
@@ -11512,9 +12043,9 @@ function wrappedNDArrayCtor(data, shape, stride, offset) {
 
 module.exports = wrappedNDArrayCtor
 }).call(this,require("buffer").Buffer)
-},{"buffer":188,"iota-array":111}],111:[function(require,module,exports){
-module.exports=require(72)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/game-shell/node_modules/iota-array/iota.js":72}],112:[function(require,module,exports){
+},{"buffer":187,"iota-array":110}],110:[function(require,module,exports){
+module.exports=require(71)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/game-shell/node_modules/iota-array/iota.js":71}],111:[function(require,module,exports){
 'use strict';
 
 var vec3 = require('gl-vec3')
@@ -11753,75 +12284,75 @@ function clamp(value, to) {
   return isFinite(to) ? Math.max(Math.min(value, to), -to) : value
 }
 
-},{"extend":113,"gl-vec3":125}],113:[function(require,module,exports){
-module.exports=require(62)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/extend/index.js":62}],114:[function(require,module,exports){
+},{"extend":112,"gl-vec3":124}],112:[function(require,module,exports){
+module.exports=require(61)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/extend/index.js":61}],113:[function(require,module,exports){
+module.exports=require(6)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/add.js":6}],114:[function(require,module,exports){
 module.exports=require(7)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/add.js":7}],115:[function(require,module,exports){
+},{"./dot":121,"./fromValues":123,"./normalize":132,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/angle.js":7}],115:[function(require,module,exports){
 module.exports=require(8)
-},{"./dot":122,"./fromValues":124,"./normalize":133,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/angle.js":8}],116:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/clone.js":8}],116:[function(require,module,exports){
 module.exports=require(9)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/clone.js":9}],117:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/copy.js":9}],117:[function(require,module,exports){
 module.exports=require(10)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/copy.js":10}],118:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/create.js":10}],118:[function(require,module,exports){
 module.exports=require(11)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/create.js":11}],119:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/cross.js":11}],119:[function(require,module,exports){
 module.exports=require(12)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/cross.js":12}],120:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/distance.js":12}],120:[function(require,module,exports){
 module.exports=require(13)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/distance.js":13}],121:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/divide.js":13}],121:[function(require,module,exports){
 module.exports=require(14)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/divide.js":14}],122:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/dot.js":14}],122:[function(require,module,exports){
 module.exports=require(15)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/dot.js":15}],123:[function(require,module,exports){
+},{"./create":117,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/forEach.js":15}],123:[function(require,module,exports){
 module.exports=require(16)
-},{"./create":118,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/forEach.js":16}],124:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/fromValues.js":16}],124:[function(require,module,exports){
 module.exports=require(17)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/fromValues.js":17}],125:[function(require,module,exports){
+},{"./add":113,"./angle":114,"./clone":115,"./copy":116,"./create":117,"./cross":118,"./distance":119,"./divide":120,"./dot":121,"./forEach":122,"./fromValues":123,"./inverse":125,"./length":126,"./lerp":127,"./max":128,"./min":129,"./multiply":130,"./negate":131,"./normalize":132,"./random":133,"./rotateX":134,"./rotateY":135,"./rotateZ":136,"./scale":137,"./scaleAndAdd":138,"./set":139,"./squaredDistance":140,"./squaredLength":141,"./subtract":142,"./transformMat3":143,"./transformMat4":144,"./transformQuat":145,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/index.js":17}],125:[function(require,module,exports){
 module.exports=require(18)
-},{"./add":114,"./angle":115,"./clone":116,"./copy":117,"./create":118,"./cross":119,"./distance":120,"./divide":121,"./dot":122,"./forEach":123,"./fromValues":124,"./inverse":126,"./length":127,"./lerp":128,"./max":129,"./min":130,"./multiply":131,"./negate":132,"./normalize":133,"./random":134,"./rotateX":135,"./rotateY":136,"./rotateZ":137,"./scale":138,"./scaleAndAdd":139,"./set":140,"./squaredDistance":141,"./squaredLength":142,"./subtract":143,"./transformMat3":144,"./transformMat4":145,"./transformQuat":146,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/index.js":18}],126:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/inverse.js":18}],126:[function(require,module,exports){
 module.exports=require(19)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/inverse.js":19}],127:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/length.js":19}],127:[function(require,module,exports){
 module.exports=require(20)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/length.js":20}],128:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/lerp.js":20}],128:[function(require,module,exports){
 module.exports=require(21)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/lerp.js":21}],129:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/max.js":21}],129:[function(require,module,exports){
 module.exports=require(22)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/max.js":22}],130:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/min.js":22}],130:[function(require,module,exports){
 module.exports=require(23)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/min.js":23}],131:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/multiply.js":23}],131:[function(require,module,exports){
 module.exports=require(24)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/multiply.js":24}],132:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/negate.js":24}],132:[function(require,module,exports){
 module.exports=require(25)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/negate.js":25}],133:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/normalize.js":25}],133:[function(require,module,exports){
 module.exports=require(26)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/normalize.js":26}],134:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/random.js":26}],134:[function(require,module,exports){
 module.exports=require(27)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/random.js":27}],135:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateX.js":27}],135:[function(require,module,exports){
 module.exports=require(28)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateX.js":28}],136:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateY.js":28}],136:[function(require,module,exports){
 module.exports=require(29)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateY.js":29}],137:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateZ.js":29}],137:[function(require,module,exports){
 module.exports=require(30)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateZ.js":30}],138:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/scale.js":30}],138:[function(require,module,exports){
 module.exports=require(31)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/scale.js":31}],139:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/scaleAndAdd.js":31}],139:[function(require,module,exports){
 module.exports=require(32)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/scaleAndAdd.js":32}],140:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/set.js":32}],140:[function(require,module,exports){
 module.exports=require(33)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/set.js":33}],141:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/squaredDistance.js":33}],141:[function(require,module,exports){
 module.exports=require(34)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/squaredDistance.js":34}],142:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/squaredLength.js":34}],142:[function(require,module,exports){
 module.exports=require(35)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/squaredLength.js":35}],143:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/subtract.js":35}],143:[function(require,module,exports){
 module.exports=require(36)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/subtract.js":36}],144:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformMat3.js":36}],144:[function(require,module,exports){
 module.exports=require(37)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformMat3.js":37}],145:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformMat4.js":37}],145:[function(require,module,exports){
 module.exports=require(38)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformMat4.js":38}],146:[function(require,module,exports){
-module.exports=require(39)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformQuat.js":39}],147:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformQuat.js":38}],146:[function(require,module,exports){
 'use strict';
 
 var collisions = require('collide-3d-tilemap')
@@ -12039,11 +12570,11 @@ function setBoxPos(box, pos) {
   vec3.add( box.max, box.base, box.vec )
 }
 
-},{"./rigidBody":185,"aabb-3d":148,"collide-3d-tilemap":150,"extend":151,"gl-vec3":163}],148:[function(require,module,exports){
+},{"./rigidBody":184,"aabb-3d":147,"collide-3d-tilemap":149,"extend":150,"gl-vec3":162}],147:[function(require,module,exports){
+module.exports=require(49)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/aabb-3d/index.js":49,"gl-matrix":148}],148:[function(require,module,exports){
 module.exports=require(50)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/aabb-3d/index.js":50,"gl-matrix":149}],149:[function(require,module,exports){
-module.exports=require(51)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/aabb-3d/node_modules/gl-matrix/dist/gl-matrix.js":51}],150:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/aabb-3d/node_modules/gl-matrix/dist/gl-matrix.js":50}],149:[function(require,module,exports){
 module.exports = function(field, tilesize, dimensions, offset) {
   dimensions = dimensions || [ 
     Math.sqrt(field.length) >> 0
@@ -12131,75 +12662,75 @@ module.exports = function(field, tilesize, dimensions, offset) {
   }  
 }
 
-},{}],151:[function(require,module,exports){
-module.exports=require(62)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/extend/index.js":62}],152:[function(require,module,exports){
+},{}],150:[function(require,module,exports){
+module.exports=require(61)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/extend/index.js":61}],151:[function(require,module,exports){
+module.exports=require(6)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/add.js":6}],152:[function(require,module,exports){
 module.exports=require(7)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/add.js":7}],153:[function(require,module,exports){
+},{"./dot":159,"./fromValues":161,"./normalize":170,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/angle.js":7}],153:[function(require,module,exports){
 module.exports=require(8)
-},{"./dot":160,"./fromValues":162,"./normalize":171,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/angle.js":8}],154:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/clone.js":8}],154:[function(require,module,exports){
 module.exports=require(9)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/clone.js":9}],155:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/copy.js":9}],155:[function(require,module,exports){
 module.exports=require(10)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/copy.js":10}],156:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/create.js":10}],156:[function(require,module,exports){
 module.exports=require(11)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/create.js":11}],157:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/cross.js":11}],157:[function(require,module,exports){
 module.exports=require(12)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/cross.js":12}],158:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/distance.js":12}],158:[function(require,module,exports){
 module.exports=require(13)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/distance.js":13}],159:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/divide.js":13}],159:[function(require,module,exports){
 module.exports=require(14)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/divide.js":14}],160:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/dot.js":14}],160:[function(require,module,exports){
 module.exports=require(15)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/dot.js":15}],161:[function(require,module,exports){
+},{"./create":155,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/forEach.js":15}],161:[function(require,module,exports){
 module.exports=require(16)
-},{"./create":156,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/forEach.js":16}],162:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/fromValues.js":16}],162:[function(require,module,exports){
 module.exports=require(17)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/fromValues.js":17}],163:[function(require,module,exports){
+},{"./add":151,"./angle":152,"./clone":153,"./copy":154,"./create":155,"./cross":156,"./distance":157,"./divide":158,"./dot":159,"./forEach":160,"./fromValues":161,"./inverse":163,"./length":164,"./lerp":165,"./max":166,"./min":167,"./multiply":168,"./negate":169,"./normalize":170,"./random":171,"./rotateX":172,"./rotateY":173,"./rotateZ":174,"./scale":175,"./scaleAndAdd":176,"./set":177,"./squaredDistance":178,"./squaredLength":179,"./subtract":180,"./transformMat3":181,"./transformMat4":182,"./transformQuat":183,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/index.js":17}],163:[function(require,module,exports){
 module.exports=require(18)
-},{"./add":152,"./angle":153,"./clone":154,"./copy":155,"./create":156,"./cross":157,"./distance":158,"./divide":159,"./dot":160,"./forEach":161,"./fromValues":162,"./inverse":164,"./length":165,"./lerp":166,"./max":167,"./min":168,"./multiply":169,"./negate":170,"./normalize":171,"./random":172,"./rotateX":173,"./rotateY":174,"./rotateZ":175,"./scale":176,"./scaleAndAdd":177,"./set":178,"./squaredDistance":179,"./squaredLength":180,"./subtract":181,"./transformMat3":182,"./transformMat4":183,"./transformQuat":184,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/index.js":18}],164:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/inverse.js":18}],164:[function(require,module,exports){
 module.exports=require(19)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/inverse.js":19}],165:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/length.js":19}],165:[function(require,module,exports){
 module.exports=require(20)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/length.js":20}],166:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/lerp.js":20}],166:[function(require,module,exports){
 module.exports=require(21)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/lerp.js":21}],167:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/max.js":21}],167:[function(require,module,exports){
 module.exports=require(22)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/max.js":22}],168:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/min.js":22}],168:[function(require,module,exports){
 module.exports=require(23)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/min.js":23}],169:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/multiply.js":23}],169:[function(require,module,exports){
 module.exports=require(24)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/multiply.js":24}],170:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/negate.js":24}],170:[function(require,module,exports){
 module.exports=require(25)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/negate.js":25}],171:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/normalize.js":25}],171:[function(require,module,exports){
 module.exports=require(26)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/normalize.js":26}],172:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/random.js":26}],172:[function(require,module,exports){
 module.exports=require(27)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/random.js":27}],173:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateX.js":27}],173:[function(require,module,exports){
 module.exports=require(28)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateX.js":28}],174:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateY.js":28}],174:[function(require,module,exports){
 module.exports=require(29)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateY.js":29}],175:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateZ.js":29}],175:[function(require,module,exports){
 module.exports=require(30)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateZ.js":30}],176:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/scale.js":30}],176:[function(require,module,exports){
 module.exports=require(31)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/scale.js":31}],177:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/scaleAndAdd.js":31}],177:[function(require,module,exports){
 module.exports=require(32)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/scaleAndAdd.js":32}],178:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/set.js":32}],178:[function(require,module,exports){
 module.exports=require(33)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/set.js":33}],179:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/squaredDistance.js":33}],179:[function(require,module,exports){
 module.exports=require(34)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/squaredDistance.js":34}],180:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/squaredLength.js":34}],180:[function(require,module,exports){
 module.exports=require(35)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/squaredLength.js":35}],181:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/subtract.js":35}],181:[function(require,module,exports){
 module.exports=require(36)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/subtract.js":36}],182:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformMat3.js":36}],182:[function(require,module,exports){
 module.exports=require(37)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformMat3.js":37}],183:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformMat4.js":37}],183:[function(require,module,exports){
 module.exports=require(38)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformMat4.js":38}],184:[function(require,module,exports){
-module.exports=require(39)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformQuat.js":39}],185:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformQuat.js":38}],184:[function(require,module,exports){
 
 var aabb = require('aabb-3d')
 ,   vec3 = require('gl-vec3')
@@ -12251,7 +12782,7 @@ RigidBody.prototype.atRestY = function() { return this.resting[1] }
 RigidBody.prototype.atRestZ = function() { return this.resting[2] }
 
 
-},{"aabb-3d":148,"gl-vec3":163}],186:[function(require,module,exports){
+},{"aabb-3d":147,"gl-vec3":162}],185:[function(require,module,exports){
 "use strict"
 
 function traceRay_impl(
@@ -12473,7 +13004,7 @@ function traceRay(voxels, origin, direction, max_d, hit_pos, hit_norm, EPSILON) 
 }
 
 module.exports = traceRay
-},{}],187:[function(require,module,exports){
+},{}],186:[function(require,module,exports){
 /*
  * A fast javascript implementation of simplex noise by Jonas Wagner
  *
@@ -12881,7 +13412,7 @@ if (typeof module !== 'undefined') {
 
 })();
 
-},{}],188:[function(require,module,exports){
+},{}],187:[function(require,module,exports){
 /*!
  * The buffer module from node.js, for the browser.
  *
@@ -13934,7 +14465,7 @@ function decodeUtf8Char (str) {
   }
 }
 
-},{"base64-js":189,"ieee754":190,"is-array":191}],189:[function(require,module,exports){
+},{"base64-js":188,"ieee754":189,"is-array":190}],188:[function(require,module,exports){
 var lookup = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
 ;(function (exports) {
@@ -14056,7 +14587,7 @@ var lookup = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 	exports.fromByteArray = uint8ToBase64
 }(typeof exports === 'undefined' ? (this.base64js = {}) : exports))
 
-},{}],190:[function(require,module,exports){
+},{}],189:[function(require,module,exports){
 exports.read = function(buffer, offset, isLE, mLen, nBytes) {
   var e, m,
       eLen = nBytes * 8 - mLen - 1,
@@ -14142,7 +14673,7 @@ exports.write = function(buffer, value, offset, isLE, mLen, nBytes) {
   buffer[offset + i - d] |= s * 128;
 };
 
-},{}],191:[function(require,module,exports){
+},{}],190:[function(require,module,exports){
 
 /**
  * isArray
@@ -14177,7 +14708,7 @@ module.exports = isArray || function (val) {
   return !! val && '[object Array]' == str.call(val);
 };
 
-},{}],192:[function(require,module,exports){
+},{}],191:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -14480,9 +15011,9 @@ function isUndefined(arg) {
   return arg === void 0;
 }
 
-},{}],193:[function(require,module,exports){
-module.exports=require(109)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/inherits/inherits_browser.js":109}],194:[function(require,module,exports){
+},{}],192:[function(require,module,exports){
+module.exports=require(108)
+},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/inherits/inherits_browser.js":108}],193:[function(require,module,exports){
 // shim for using process in browser
 
 var process = module.exports = {};
@@ -14570,14 +15101,14 @@ process.chdir = function (dir) {
     throw new Error('process.chdir is not supported');
 };
 
-},{}],195:[function(require,module,exports){
+},{}],194:[function(require,module,exports){
 module.exports = function isBuffer(arg) {
   return arg && typeof arg === 'object'
     && typeof arg.copy === 'function'
     && typeof arg.fill === 'function'
     && typeof arg.readUInt8 === 'function';
 }
-},{}],196:[function(require,module,exports){
+},{}],195:[function(require,module,exports){
 (function (process,global){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -15167,4 +15698,4 @@ function hasOwnProperty(obj, prop) {
 }
 
 }).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./support/isBuffer":195,"_process":194,"inherits":193}]},{},[1]);
+},{"./support/isBuffer":194,"_process":193,"inherits":192}]},{},[1]);
