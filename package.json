@@ -17,9 +17,10 @@
   "license": "MIT",
   "dependencies": {
     "gl-vec3": "^1.0.3",
+    "ndarray-hash": "0.0.0",
     "ndhash": "^0.1.0",
-    "simplex-noise": "^2.1.1",
-    "noa": "andyhall/noa#31ff7253f4b724b319253ac55ea2db5d5a1ff1a0"
+    "noa": "andyhall/noa#31ff7253f4b724b319253ac55ea2db5d5a1ff1a0",
+    "simplex-noise": "^2.1.1"
   },
   "devDependencies": {
     "beefy": "^2.1.2",

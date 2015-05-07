@@ -18,6 +18,7 @@ var opts = {
   chunkAddDistance: 2,
   chunkRemoveDistance: 3,
   // rendering
+  worldScale: 0.5,
   // player
   playerStart: [0.5,15,0.5],
   playerHeight: 1.4,
@@ -67,7 +68,7 @@ game.playerEntity.on('tick',function() {
  *    spawn some simple "mob" entities
 */
 
-var numMobs = 30
+var numMobs = 20
 for (var i=0; i<numMobs; ++i) {
   var size = 1+Math.random()*2
   var x = 50 - 100*Math.random()
@@ -131,6 +132,19 @@ game.inputs.down.on('timebomb', function() {
 
 
 
+/*
+ *    Goofing around with 3D Conway/Life
+*/
+
+var conway = require('./lib/conway')(game)
+game.inputs.bind('conway', '3')
+game.inputs.down.on('conway', function() {
+  conway.fire()
+})
+game.inputs.bind('conway-ss', '4')
+game.inputs.down.on('conway-ss', function() {
+  conway.startStop()
+})
 
 
 
