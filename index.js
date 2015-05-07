@@ -19,7 +19,7 @@ var opts = {
   chunkRemoveDistance: 3,
   // rendering
   // player
-  playerStart: [0,20,0],
+  playerStart: [0.5,15,0.5],
   playerHeight: 1.4,
   playerWidth: 1.0  ,
   playerAutoStep: true,
@@ -67,8 +67,8 @@ game.playerEntity.on('tick',function() {
  *    spawn some simple "mob" entities
 */
 
-
-for (var i=0; i<30; ++i) {
+var numMobs = 30
+for (var i=0; i<numMobs; ++i) {
   var size = 1+Math.random()*2
   var x = 50 - 100*Math.random()
   var y =  8 +   8*Math.random()
@@ -107,7 +107,7 @@ game.inputs.down.on('alt-fire', function() {
   if (loc) game.addBlock(placeBlockID, loc); // addBlock works only if spot is clear
 })
 
-// register "i" key to invert mouse
+// bind "i" key to invert mouse
 game.inputs.bind('invertY', 'I')
 game.inputs.down.on('invertY', function() {
   game.controls.inverseY = !game.controls.inverseY
