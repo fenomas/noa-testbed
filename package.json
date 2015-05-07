@@ -19,7 +19,7 @@
     "gl-vec3": "^1.0.3",
     "ndhash": "^0.1.0",
     "simplex-noise": "^2.1.1",
-    "noa": "andyhall/noa#3627720078793fb685e7faedf7c238160492eaeb"
+    "noa": "andyhall/noa#31ff7253f4b724b319253ac55ea2db5d5a1ff1a0"
   },
   "devDependencies": {
     "beefy": "^2.1.2",
