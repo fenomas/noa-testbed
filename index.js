@@ -18,8 +18,9 @@ var opts = {
   chunkAddDistance: 2,
   chunkRemoveDistance: 3,
   // rendering
+  worldScale: 0.5,
   // player
-  playerStart: [0,20,0],
+  playerStart: [0.5,15,0.5],
   playerHeight: 1.4,
   playerWidth: 1.0  ,
   playerAutoStep: true,
@@ -67,8 +68,8 @@ game.playerEntity.on('tick',function() {
  *    spawn some simple "mob" entities
 */
 
-
-for (var i=0; i<30; ++i) {
+var numMobs = 20
+for (var i=0; i<numMobs; ++i) {
   var size = 1+Math.random()*2
   var x = 50 - 100*Math.random()
   var y =  8 +   8*Math.random()
@@ -107,7 +108,7 @@ game.inputs.down.on('alt-fire', function() {
   if (loc) game.addBlock(placeBlockID, loc); // addBlock works only if spot is clear
 })
 
-// register "i" key to invert mouse
+// bind "i" key to invert mouse
 game.inputs.bind('invertY', 'I')
 game.inputs.down.on('invertY', function() {
   game.controls.inverseY = !game.controls.inverseY
@@ -131,6 +132,19 @@ game.inputs.down.on('timebomb', function() {
 
 
 
+/*
+ *    Goofing around with 3D Conway/Life
+*/
+
+var conway = require('./lib/conway')(game)
+game.inputs.bind('conway', '3')
+game.inputs.down.on('conway', function() {
+  conway.fire()
+})
+game.inputs.bind('conway-ss', '4')
+game.inputs.down.on('conway-ss', function() {
+  conway.startStop()
+})
 
 
 
