@@ -2,10 +2,12 @@ var vec3 = require('gl-vec3')
 var noa = require('noa')
 
 // local modules
+var createUI = require('./lib/ui')
 var createMob = require('./lib/mob')
 var worldgen = require('./lib/worldgen')
 var projectile = require('./lib/projectile')
 var makeParticles = require('./lib/particles')
+var createHover = require('./lib/hover')
 
 var opts = {
   // inputs
@@ -116,6 +118,14 @@ game.inputs.down.on('invertY', function() {
 
 
 /*
+ *  Minimal 'UI' (help menu) and a button to toggle it
+*/
+
+createUI(game)
+
+
+
+/*
  *  A couple of sample 'spells' that create entities and do stuff
 */
 
@@ -130,6 +140,8 @@ game.inputs.down.on('timebomb', function() {
   launchProjectile(2, 0.5, 1.5, 10, 0.25)
 })
 
+// hover-pack code in module
+createHover(game, addParticles)
 
 
 /*

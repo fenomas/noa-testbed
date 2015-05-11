@@ -1,6 +1,6 @@
 {
   "name": "noa-hello-world",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Test world for experimental game engine",
   "main": "index.js",
   "scripts": {
@@ -19,7 +19,7 @@
     "gl-vec3": "^1.0.3",
     "ndarray-hash": "0.0.0",
     "ndhash": "^0.1.0",
-    "noa": "andyhall/noa#31ff7253f4b724b319253ac55ea2db5d5a1ff1a0",
+    "noa": "andyhall/noa#a568e5976203d98fc413ac47ea591bfd554c3323",
     "simplex-noise": "^2.1.1"
   },
   "devDependencies": {
