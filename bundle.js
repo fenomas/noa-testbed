@@ -761,20 +761,24 @@ module.exports = function(game) {
 
 function UI(game) {
   var toggled = false
-  var showHelp = true
+  var showing = true
   
   game.inputs.bind('help', 'H')
   game.inputs.down.on('help', function() {
     toggled = true
-    showHelp = !showHelp
-    setVis(showHelp)
+    showing = !showing
+    setVis(showing)
   })
   
   game.container.on('gainedPointerLock', function() {
-    setVis( toggled ? showHelp : false )
+    if (toggled) return
+    showing = false
+    setVis(showing)
   })
   game.container.on('lostPointerLock', function() {
-    setVis( toggled ? showHelp : true )    
+    if (toggled) return
+    showing = true
+    setVis(showing)
   })
 }
 
