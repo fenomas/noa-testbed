@@ -27,9 +27,42 @@
         text-shadow: 1px 1px 0px black;
         text-align: center;
       }
+      #help {
+        position: fixed;
+        top: 5px;
+        left: 5px;
+        margin: 10px;
+        padding: 2px 8px;
+        background-color: rgba(255, 255, 255, 0.6);
+        border: 1px solid white;
+        border-radius: 8px;
+        z-index: 98;
+        font: 
+      }
+      #help ul {
+        padding: 0;
+        margin: 5px;
+      }
+      #help li {
+        font: 12px sans-serif;
+        list-style: none;
+      }
     </style>
   </head>
   <body>
+    <div id="help">
+      <ul>
+        <li>WASD, arrows: move</li>
+        <li>L-mouse: destroy</li>
+        <li>R-mouse, E: place</li>
+        <li>M-mouse, Q: pick</li>
+        <li>1: block missile</li>
+        <li>2: block bomb</li>
+        <li>3: Conway block</li>
+        <li>4: Conway stop/start</li>
+        <li>H: help</li>
+      </ul>
+    </div>
     <div id="reticle">+</div>
     <script type="text/javascript" src="lib/babylon.js"></script>
     <script type="text/javascript" src="bundle.js"></script>

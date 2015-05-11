@@ -2,6 +2,7 @@ var vec3 = require('gl-vec3')
 var noa = require('noa')
 
 // local modules
+var createUI = require('./lib/ui')
 var createMob = require('./lib/mob')
 var worldgen = require('./lib/worldgen')
 var projectile = require('./lib/projectile')
@@ -113,6 +114,14 @@ game.inputs.bind('invertY', 'I')
 game.inputs.down.on('invertY', function() {
   game.controls.inverseY = !game.controls.inverseY
 })
+
+
+/*
+ *  Minimal 'UI' (help menu) and a button to toggle it
+*/
+
+createUI(game)
+
 
 
 /*
