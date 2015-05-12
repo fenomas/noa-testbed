@@ -1,5 +1,5 @@
 {
-  "name": "noa-hello-world",
+  "name": "noa-testbed",
   "version": "0.5.0",
   "description": "Test world for experimental game engine",
   "main": "index.js",
@@ -29,9 +29,9 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/andyhall/noa-hello-world"
+    "url": "https://github.com/andyhall/noa-testbed"
   },
   "bugs": {
-    "url": "https://github.com/andyhall/noa-hello-world/issues"
+    "url": "https://github.com/andyhall/noa-testbed/issues"
   }
 }

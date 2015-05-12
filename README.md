@@ -1,8 +1,8 @@
-# noa-hello-world
+# noa-testbed
 
-Minimal test project for an experimental game engine.
+Test project implementing features of an experimental game engine.
 
-[Live demo!](http://andyhall.github.io/noa-hello-world/)
+[Live demo!](http://andyhall.github.io/noa-testbed/)
 
 Live demo controls:
  * WASD/arrow keys to move, Spacebar to jump
