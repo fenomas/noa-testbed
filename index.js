@@ -1,5 +1,5 @@
 var vec3 = require('gl-vec3')
-var noa = require('noa')
+var noa = require('noa-engine')
 
 // local modules
 var createUI = require('./lib/ui')
