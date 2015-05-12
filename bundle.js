@@ -1,6 +1,6 @@
 (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
 var vec3 = require('gl-vec3')
-var noa = require('noa')
+var noa = require('noa-engine')
 
 // local modules
 var createUI = require('./lib/ui')
@@ -163,7 +163,7 @@ game.inputs.down.on('conway-ss', function() {
 
 
 
-},{"./lib/conway":2,"./lib/hover":3,"./lib/mob":4,"./lib/particles":5,"./lib/projectile":6,"./lib/ui":7,"./lib/worldgen":8,"gl-vec3":20,"noa":46}],2:[function(require,module,exports){
+},{"./lib/conway":2,"./lib/hover":3,"./lib/mob":4,"./lib/particles":5,"./lib/projectile":6,"./lib/ui":7,"./lib/worldgen":8,"gl-vec3":20,"noa-engine":46}],2:[function(require,module,exports){
 'use strict';
 
 
@@ -2197,7 +2197,7 @@ function Engine(opts) {
   this.inputs.bind( 'debug', 'Z' )
   this.inputs.down.on('debug', function onDebug() {
     debug = !debug
-    if (debug) scene.debugLayer.show(); else scene.debugLayer.hide();
+    if (debug) window.scene.debugLayer.show(); else window.scene.debugLayer.hide();
   })
 
 
@@ -2227,8 +2227,6 @@ Engine.prototype.tick = function() {
 
 Engine.prototype.render = function(framePart) {
   var dt = framePart*this._tickRate // ms since last tick
-  // update camera based on mouse move and scroll
-  var nomouse = !('onclick' in window)
   // only move camera during pointerlock or mousedown, or if pointerlock is unsupported
   if (this.container._shell.pointerLock || 
       !this.container._pointerLockSupported || 
@@ -2323,7 +2321,6 @@ Engine.prototype.setBlockTargets = function() {
     var norm = result.normal
     this._blockTargetLoc = loc
     this._blockPlacementLoc = [ loc[0]+norm[0], loc[1]+norm[1], loc[2]+norm[2] ]
-    var axis = norm[0] ? 0 : norm[1] ? 1 : 2
     this.rendering.highlightBlockFace(true, loc, norm)
   } else {
     this._blockTargetLoc = this._blockPlacementLoc = null
@@ -2501,8 +2498,8 @@ Chunk.prototype.initData = function() {
   var len2 = view.shape[2]
   var list = this._objMeshCoordList
   for (i=0; i<len0; ++i) {
-    for (j=0; j<len0; ++j) {
-      for (k=0; k<len0; ++k) {
+    for (j=0; j<len1; ++j) {
+      for (k=0; k<len2; ++k) {
         if (view.get(i,j,k) & OBJECT_BIT) {
           list.push(i,j,k)
         }
@@ -2903,7 +2900,7 @@ function greedyND(arr, getMaterial, getColor, doAO, aoValues) {
             //Zero-out mask
             for(l=0; l<h; ++l) {
               for(m=0; m<w; ++m) {
-                mask[n+m+l*len1] = false
+                mask[n+m+l*len1] = 0
               }
             }
             //Increment counters and continue
@@ -4082,7 +4079,6 @@ function doDeferredMeshing(self) {
   var meshdata = meshChunk(self, chunk)
   if (meshdata.length) {
 
-    var s = chunk.size
     var mesh
     if (DEBUG_OCTREES) {
       mesh = makeChunkMesh(self, meshdata, id, chunk )
@@ -4122,7 +4118,6 @@ function removeMesh(self, id) {
 // given an updated chunk reference, run it through mesher
 function meshChunk(self, chunk) {
   var noa = self.noa
-  var opacityGetter = noa.registry._blockOpacity
   var matGetter = noa.registry.getBlockFaceMaterial.bind(noa.registry)
   var colGetter = noa.registry.getMaterialVertexColor.bind(noa.registry)
   // returns an array of chunk#Submesh
@@ -4291,7 +4286,7 @@ function makeSubmeshes(self, meshdata, id, chunk) {
     var matID = ids[i]
     var verts = positions[i].length / 3
     var inds = indices[i].length
-    var sub = new BABYLON.SubMesh(matID, vertStart, verts, indStart, inds, mesh)
+    new BABYLON.SubMesh(matID, vertStart, verts, indStart, inds, mesh)
     vertStart += verts
     indStart += inds
   }
@@ -4309,7 +4304,6 @@ function getMultiMaterial( self ) {
     terrainMultiMat = new BABYLON.MultiMaterial("terrainMulti", self._scene)
     var mats = self.noa.registry._matData
     for (var i=0; i<mats.length; ++i) {
-      var dat = mats[i]
       var mat = makeTerrainMaterial(self, i)
       terrainMultiMat.subMaterials[i] = mat
     }
@@ -4420,7 +4414,6 @@ function makeChunkMesh(self, meshdata, id, chunk) {
 
 
 function createOrUpdateOctrees(self, mesh, chunk, x, y, z) {
-  var scene = self._scene
   var octree = self._octree
 
   var cs = chunk.size
@@ -4600,7 +4593,6 @@ function addNewChunk( world, i, j, k ) {
   var chunk = createChunk( world, i, j, k )
   world._chunks[id] = chunk
   // alert the world
-  var cs = world.chunkSize
   world.emit( 'chunkAdded', chunk )
 }
 
@@ -11796,7 +11788,7 @@ if(typeof window.performance === "object") {
 
 },{}],73:[function(require,module,exports){
 module.exports=require(70)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/game-inputs/lib/mousewheel-polyfill.js":70}],74:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/noa-engine/node_modules/game-inputs/lib/mousewheel-polyfill.js":70}],74:[function(require,module,exports){
 // http://paulirish.com/2011/requestanimationframe-for-smart-animating/
 // http://my.opera.com/emoller/blog/2011/12/20/requestanimationframe-for-smart-er-animating
  
@@ -11936,7 +11928,7 @@ function invert(hash) {
 module.exports = invert
 },{}],78:[function(require,module,exports){
 module.exports=require(44)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/ndarray-hash/node_modules/ndarray/node_modules/iota-array/iota.js":44}],79:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/ndarray-hash/node_modules/ndarray/node_modules/iota-array/iota.js":44}],79:[function(require,module,exports){
 "use strict"
 
 function unique_pred(list, compare) {
@@ -11997,7 +11989,7 @@ module.exports = unique
 
 },{}],80:[function(require,module,exports){
 module.exports=require(71)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/game-inputs/node_modules/vkey/index.js":71}],81:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/noa-engine/node_modules/game-inputs/node_modules/vkey/index.js":71}],81:[function(require,module,exports){
 "use strict"
 
 var EventEmitter = require("events").EventEmitter
@@ -12738,71 +12730,71 @@ module.exports = createShell
 
 },{"./lib/hrtime-polyfill.js":72,"./lib/mousewheel-polyfill.js":73,"./lib/raf-polyfill.js":74,"binary-search-bounds":75,"domready":76,"events":198,"invert-hash":77,"iota-array":78,"uniq":79,"util":202,"vkey":80}],82:[function(require,module,exports){
 module.exports=require(9)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/add.js":9}],83:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/add.js":9}],83:[function(require,module,exports){
 module.exports=require(10)
-},{"./dot":90,"./fromValues":92,"./normalize":101,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/angle.js":10}],84:[function(require,module,exports){
+},{"./dot":90,"./fromValues":92,"./normalize":101,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/angle.js":10}],84:[function(require,module,exports){
 module.exports=require(11)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/clone.js":11}],85:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/clone.js":11}],85:[function(require,module,exports){
 module.exports=require(12)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/copy.js":12}],86:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/copy.js":12}],86:[function(require,module,exports){
 module.exports=require(13)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/create.js":13}],87:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/create.js":13}],87:[function(require,module,exports){
 module.exports=require(14)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/cross.js":14}],88:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/cross.js":14}],88:[function(require,module,exports){
 module.exports=require(15)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/distance.js":15}],89:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/distance.js":15}],89:[function(require,module,exports){
 module.exports=require(16)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/divide.js":16}],90:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/divide.js":16}],90:[function(require,module,exports){
 module.exports=require(17)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/dot.js":17}],91:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/dot.js":17}],91:[function(require,module,exports){
 module.exports=require(18)
-},{"./create":86,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/forEach.js":18}],92:[function(require,module,exports){
+},{"./create":86,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/forEach.js":18}],92:[function(require,module,exports){
 module.exports=require(19)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/fromValues.js":19}],93:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/fromValues.js":19}],93:[function(require,module,exports){
 module.exports=require(20)
-},{"./add":82,"./angle":83,"./clone":84,"./copy":85,"./create":86,"./cross":87,"./distance":88,"./divide":89,"./dot":90,"./forEach":91,"./fromValues":92,"./inverse":94,"./length":95,"./lerp":96,"./max":97,"./min":98,"./multiply":99,"./negate":100,"./normalize":101,"./random":102,"./rotateX":103,"./rotateY":104,"./rotateZ":105,"./scale":106,"./scaleAndAdd":107,"./set":108,"./squaredDistance":109,"./squaredLength":110,"./subtract":111,"./transformMat3":112,"./transformMat4":113,"./transformQuat":114,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/index.js":20}],94:[function(require,module,exports){
+},{"./add":82,"./angle":83,"./clone":84,"./copy":85,"./create":86,"./cross":87,"./distance":88,"./divide":89,"./dot":90,"./forEach":91,"./fromValues":92,"./inverse":94,"./length":95,"./lerp":96,"./max":97,"./min":98,"./multiply":99,"./negate":100,"./normalize":101,"./random":102,"./rotateX":103,"./rotateY":104,"./rotateZ":105,"./scale":106,"./scaleAndAdd":107,"./set":108,"./squaredDistance":109,"./squaredLength":110,"./subtract":111,"./transformMat3":112,"./transformMat4":113,"./transformQuat":114,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/index.js":20}],94:[function(require,module,exports){
 module.exports=require(21)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/inverse.js":21}],95:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/inverse.js":21}],95:[function(require,module,exports){
 module.exports=require(22)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/length.js":22}],96:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/length.js":22}],96:[function(require,module,exports){
 module.exports=require(23)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/lerp.js":23}],97:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/lerp.js":23}],97:[function(require,module,exports){
 module.exports=require(24)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/max.js":24}],98:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/max.js":24}],98:[function(require,module,exports){
 module.exports=require(25)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/min.js":25}],99:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/min.js":25}],99:[function(require,module,exports){
 module.exports=require(26)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/multiply.js":26}],100:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/multiply.js":26}],100:[function(require,module,exports){
 module.exports=require(27)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/negate.js":27}],101:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/negate.js":27}],101:[function(require,module,exports){
 module.exports=require(28)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/normalize.js":28}],102:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/normalize.js":28}],102:[function(require,module,exports){
 module.exports=require(29)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/random.js":29}],103:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/random.js":29}],103:[function(require,module,exports){
 module.exports=require(30)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateX.js":30}],104:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateX.js":30}],104:[function(require,module,exports){
 module.exports=require(31)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateY.js":31}],105:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateY.js":31}],105:[function(require,module,exports){
 module.exports=require(32)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateZ.js":32}],106:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateZ.js":32}],106:[function(require,module,exports){
 module.exports=require(33)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/scale.js":33}],107:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/scale.js":33}],107:[function(require,module,exports){
 module.exports=require(34)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/scaleAndAdd.js":34}],108:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/scaleAndAdd.js":34}],108:[function(require,module,exports){
 module.exports=require(35)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/set.js":35}],109:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/set.js":35}],109:[function(require,module,exports){
 module.exports=require(36)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/squaredDistance.js":36}],110:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/squaredDistance.js":36}],110:[function(require,module,exports){
 module.exports=require(37)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/squaredLength.js":37}],111:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/squaredLength.js":37}],111:[function(require,module,exports){
 module.exports=require(38)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/subtract.js":38}],112:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/subtract.js":38}],112:[function(require,module,exports){
 module.exports=require(39)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformMat3.js":39}],113:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformMat3.js":39}],113:[function(require,module,exports){
 module.exports=require(40)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformMat4.js":40}],114:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformMat4.js":40}],114:[function(require,module,exports){
 module.exports=require(41)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformQuat.js":41}],115:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformQuat.js":41}],115:[function(require,module,exports){
 if (typeof Object.create === 'function') {
   // implementation from standard node.js 'util' module
   module.exports = function inherits(ctor, superCtor) {
@@ -12829,9 +12821,9 @@ if (typeof Object.create === 'function') {
 
 },{}],116:[function(require,module,exports){
 module.exports=require(43)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/ndarray-hash/node_modules/ndarray/ndarray.js":43,"buffer":194,"iota-array":117}],117:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/ndarray-hash/node_modules/ndarray/ndarray.js":43,"buffer":194,"iota-array":117}],117:[function(require,module,exports){
 module.exports=require(44)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/ndarray-hash/node_modules/ndarray/node_modules/iota-array/iota.js":44}],118:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/ndarray-hash/node_modules/ndarray/node_modules/iota-array/iota.js":44}],118:[function(require,module,exports){
 'use strict';
 
 var vec3 = require('gl-vec3')
@@ -13072,73 +13064,73 @@ function clamp(value, to) {
 
 },{"extend":119,"gl-vec3":131}],119:[function(require,module,exports){
 module.exports=require(68)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/extend/index.js":68}],120:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/noa-engine/node_modules/extend/index.js":68}],120:[function(require,module,exports){
 module.exports=require(9)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/add.js":9}],121:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/add.js":9}],121:[function(require,module,exports){
 module.exports=require(10)
-},{"./dot":128,"./fromValues":130,"./normalize":139,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/angle.js":10}],122:[function(require,module,exports){
+},{"./dot":128,"./fromValues":130,"./normalize":139,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/angle.js":10}],122:[function(require,module,exports){
 module.exports=require(11)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/clone.js":11}],123:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/clone.js":11}],123:[function(require,module,exports){
 module.exports=require(12)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/copy.js":12}],124:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/copy.js":12}],124:[function(require,module,exports){
 module.exports=require(13)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/create.js":13}],125:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/create.js":13}],125:[function(require,module,exports){
 module.exports=require(14)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/cross.js":14}],126:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/cross.js":14}],126:[function(require,module,exports){
 module.exports=require(15)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/distance.js":15}],127:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/distance.js":15}],127:[function(require,module,exports){
 module.exports=require(16)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/divide.js":16}],128:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/divide.js":16}],128:[function(require,module,exports){
 module.exports=require(17)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/dot.js":17}],129:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/dot.js":17}],129:[function(require,module,exports){
 module.exports=require(18)
-},{"./create":124,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/forEach.js":18}],130:[function(require,module,exports){
+},{"./create":124,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/forEach.js":18}],130:[function(require,module,exports){
 module.exports=require(19)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/fromValues.js":19}],131:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/fromValues.js":19}],131:[function(require,module,exports){
 module.exports=require(20)
-},{"./add":120,"./angle":121,"./clone":122,"./copy":123,"./create":124,"./cross":125,"./distance":126,"./divide":127,"./dot":128,"./forEach":129,"./fromValues":130,"./inverse":132,"./length":133,"./lerp":134,"./max":135,"./min":136,"./multiply":137,"./negate":138,"./normalize":139,"./random":140,"./rotateX":141,"./rotateY":142,"./rotateZ":143,"./scale":144,"./scaleAndAdd":145,"./set":146,"./squaredDistance":147,"./squaredLength":148,"./subtract":149,"./transformMat3":150,"./transformMat4":151,"./transformQuat":152,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/index.js":20}],132:[function(require,module,exports){
+},{"./add":120,"./angle":121,"./clone":122,"./copy":123,"./create":124,"./cross":125,"./distance":126,"./divide":127,"./dot":128,"./forEach":129,"./fromValues":130,"./inverse":132,"./length":133,"./lerp":134,"./max":135,"./min":136,"./multiply":137,"./negate":138,"./normalize":139,"./random":140,"./rotateX":141,"./rotateY":142,"./rotateZ":143,"./scale":144,"./scaleAndAdd":145,"./set":146,"./squaredDistance":147,"./squaredLength":148,"./subtract":149,"./transformMat3":150,"./transformMat4":151,"./transformQuat":152,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/index.js":20}],132:[function(require,module,exports){
 module.exports=require(21)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/inverse.js":21}],133:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/inverse.js":21}],133:[function(require,module,exports){
 module.exports=require(22)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/length.js":22}],134:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/length.js":22}],134:[function(require,module,exports){
 module.exports=require(23)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/lerp.js":23}],135:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/lerp.js":23}],135:[function(require,module,exports){
 module.exports=require(24)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/max.js":24}],136:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/max.js":24}],136:[function(require,module,exports){
 module.exports=require(25)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/min.js":25}],137:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/min.js":25}],137:[function(require,module,exports){
 module.exports=require(26)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/multiply.js":26}],138:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/multiply.js":26}],138:[function(require,module,exports){
 module.exports=require(27)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/negate.js":27}],139:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/negate.js":27}],139:[function(require,module,exports){
 module.exports=require(28)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/normalize.js":28}],140:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/normalize.js":28}],140:[function(require,module,exports){
 module.exports=require(29)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/random.js":29}],141:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/random.js":29}],141:[function(require,module,exports){
 module.exports=require(30)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateX.js":30}],142:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateX.js":30}],142:[function(require,module,exports){
 module.exports=require(31)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateY.js":31}],143:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateY.js":31}],143:[function(require,module,exports){
 module.exports=require(32)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateZ.js":32}],144:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateZ.js":32}],144:[function(require,module,exports){
 module.exports=require(33)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/scale.js":33}],145:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/scale.js":33}],145:[function(require,module,exports){
 module.exports=require(34)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/scaleAndAdd.js":34}],146:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/scaleAndAdd.js":34}],146:[function(require,module,exports){
 module.exports=require(35)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/set.js":35}],147:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/set.js":35}],147:[function(require,module,exports){
 module.exports=require(36)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/squaredDistance.js":36}],148:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/squaredDistance.js":36}],148:[function(require,module,exports){
 module.exports=require(37)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/squaredLength.js":37}],149:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/squaredLength.js":37}],149:[function(require,module,exports){
 module.exports=require(38)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/subtract.js":38}],150:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/subtract.js":38}],150:[function(require,module,exports){
 module.exports=require(39)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformMat3.js":39}],151:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformMat3.js":39}],151:[function(require,module,exports){
 module.exports=require(40)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformMat4.js":40}],152:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformMat4.js":40}],152:[function(require,module,exports){
 module.exports=require(41)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformQuat.js":41}],153:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformQuat.js":41}],153:[function(require,module,exports){
 'use strict';
 
 var collisions = require('collide-3d-tilemap')
@@ -13358,9 +13350,9 @@ function setBoxPos(box, pos) {
 
 },{"./rigidBody":191,"aabb-3d":154,"collide-3d-tilemap":156,"extend":157,"gl-vec3":169}],154:[function(require,module,exports){
 module.exports=require(56)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/aabb-3d/index.js":56,"gl-matrix":155}],155:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/noa-engine/node_modules/aabb-3d/index.js":56,"gl-matrix":155}],155:[function(require,module,exports){
 module.exports=require(57)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/aabb-3d/node_modules/gl-matrix/dist/gl-matrix.js":57}],156:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/noa-engine/node_modules/aabb-3d/node_modules/gl-matrix/dist/gl-matrix.js":57}],156:[function(require,module,exports){
 module.exports = function(field, tilesize, dimensions, offset) {
   dimensions = dimensions || [ 
     Math.sqrt(field.length) >> 0
@@ -13450,73 +13442,73 @@ module.exports = function(field, tilesize, dimensions, offset) {
 
 },{}],157:[function(require,module,exports){
 module.exports=require(68)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/extend/index.js":68}],158:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/noa-engine/node_modules/extend/index.js":68}],158:[function(require,module,exports){
 module.exports=require(9)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/add.js":9}],159:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/add.js":9}],159:[function(require,module,exports){
 module.exports=require(10)
-},{"./dot":166,"./fromValues":168,"./normalize":177,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/angle.js":10}],160:[function(require,module,exports){
+},{"./dot":166,"./fromValues":168,"./normalize":177,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/angle.js":10}],160:[function(require,module,exports){
 module.exports=require(11)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/clone.js":11}],161:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/clone.js":11}],161:[function(require,module,exports){
 module.exports=require(12)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/copy.js":12}],162:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/copy.js":12}],162:[function(require,module,exports){
 module.exports=require(13)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/create.js":13}],163:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/create.js":13}],163:[function(require,module,exports){
 module.exports=require(14)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/cross.js":14}],164:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/cross.js":14}],164:[function(require,module,exports){
 module.exports=require(15)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/distance.js":15}],165:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/distance.js":15}],165:[function(require,module,exports){
 module.exports=require(16)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/divide.js":16}],166:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/divide.js":16}],166:[function(require,module,exports){
 module.exports=require(17)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/dot.js":17}],167:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/dot.js":17}],167:[function(require,module,exports){
 module.exports=require(18)
-},{"./create":162,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/forEach.js":18}],168:[function(require,module,exports){
+},{"./create":162,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/forEach.js":18}],168:[function(require,module,exports){
 module.exports=require(19)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/fromValues.js":19}],169:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/fromValues.js":19}],169:[function(require,module,exports){
 module.exports=require(20)
-},{"./add":158,"./angle":159,"./clone":160,"./copy":161,"./create":162,"./cross":163,"./distance":164,"./divide":165,"./dot":166,"./forEach":167,"./fromValues":168,"./inverse":170,"./length":171,"./lerp":172,"./max":173,"./min":174,"./multiply":175,"./negate":176,"./normalize":177,"./random":178,"./rotateX":179,"./rotateY":180,"./rotateZ":181,"./scale":182,"./scaleAndAdd":183,"./set":184,"./squaredDistance":185,"./squaredLength":186,"./subtract":187,"./transformMat3":188,"./transformMat4":189,"./transformQuat":190,"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/index.js":20}],170:[function(require,module,exports){
+},{"./add":158,"./angle":159,"./clone":160,"./copy":161,"./create":162,"./cross":163,"./distance":164,"./divide":165,"./dot":166,"./forEach":167,"./fromValues":168,"./inverse":170,"./length":171,"./lerp":172,"./max":173,"./min":174,"./multiply":175,"./negate":176,"./normalize":177,"./random":178,"./rotateX":179,"./rotateY":180,"./rotateZ":181,"./scale":182,"./scaleAndAdd":183,"./set":184,"./squaredDistance":185,"./squaredLength":186,"./subtract":187,"./transformMat3":188,"./transformMat4":189,"./transformQuat":190,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/index.js":20}],170:[function(require,module,exports){
 module.exports=require(21)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/inverse.js":21}],171:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/inverse.js":21}],171:[function(require,module,exports){
 module.exports=require(22)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/length.js":22}],172:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/length.js":22}],172:[function(require,module,exports){
 module.exports=require(23)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/lerp.js":23}],173:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/lerp.js":23}],173:[function(require,module,exports){
 module.exports=require(24)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/max.js":24}],174:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/max.js":24}],174:[function(require,module,exports){
 module.exports=require(25)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/min.js":25}],175:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/min.js":25}],175:[function(require,module,exports){
 module.exports=require(26)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/multiply.js":26}],176:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/multiply.js":26}],176:[function(require,module,exports){
 module.exports=require(27)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/negate.js":27}],177:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/negate.js":27}],177:[function(require,module,exports){
 module.exports=require(28)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/normalize.js":28}],178:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/normalize.js":28}],178:[function(require,module,exports){
 module.exports=require(29)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/random.js":29}],179:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/random.js":29}],179:[function(require,module,exports){
 module.exports=require(30)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateX.js":30}],180:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateX.js":30}],180:[function(require,module,exports){
 module.exports=require(31)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateY.js":31}],181:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateY.js":31}],181:[function(require,module,exports){
 module.exports=require(32)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/rotateZ.js":32}],182:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateZ.js":32}],182:[function(require,module,exports){
 module.exports=require(33)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/scale.js":33}],183:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/scale.js":33}],183:[function(require,module,exports){
 module.exports=require(34)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/scaleAndAdd.js":34}],184:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/scaleAndAdd.js":34}],184:[function(require,module,exports){
 module.exports=require(35)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/set.js":35}],185:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/set.js":35}],185:[function(require,module,exports){
 module.exports=require(36)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/squaredDistance.js":36}],186:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/squaredDistance.js":36}],186:[function(require,module,exports){
 module.exports=require(37)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/squaredLength.js":37}],187:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/squaredLength.js":37}],187:[function(require,module,exports){
 module.exports=require(38)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/subtract.js":38}],188:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/subtract.js":38}],188:[function(require,module,exports){
 module.exports=require(39)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformMat3.js":39}],189:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformMat3.js":39}],189:[function(require,module,exports){
 module.exports=require(40)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformMat4.js":40}],190:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformMat4.js":40}],190:[function(require,module,exports){
 module.exports=require(41)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/gl-vec3/transformQuat.js":41}],191:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformQuat.js":41}],191:[function(require,module,exports){
 
 var aabb = require('aabb-3d')
 ,   vec3 = require('gl-vec3')
@@ -15799,7 +15791,7 @@ function isUndefined(arg) {
 
 },{}],199:[function(require,module,exports){
 module.exports=require(115)
-},{"/Users/andy/dev/game/work-babylon/noa-hello-world/node_modules/noa/node_modules/inherits/inherits_browser.js":115}],200:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/noa-engine/node_modules/inherits/inherits_browser.js":115}],200:[function(require,module,exports){
 // shim for using process in browser
 
 var process = module.exports = {};
