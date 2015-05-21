@@ -17,10 +17,12 @@
   "license": "MIT",
   "dependencies": {
     "gl-vec3": "^1.0.3",
+    "ndarray": "^1.0.16",
     "ndarray-hash": "0.0.0",
     "ndhash": "^0.1.0",
     "noa-engine": "andyhall/noa#a568e5976203d98fc413ac47ea591bfd554c3323",
-    "simplex-noise": "^2.1.1"
+    "simplex-noise": "^2.1.1",
+    "webworkify": "^1.0.2"
   },
   "devDependencies": {
     "beefy": "^2.1.2",
