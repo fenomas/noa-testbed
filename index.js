@@ -4,7 +4,7 @@ var noa = require('noa-engine')
 // local modules
 var createUI = require('./lib/ui')
 var createMob = require('./lib/mob')
-var worldgen = require('./lib/worldgen')
+var initWorldGen = require('./lib/worldgen')
 var projectile = require('./lib/projectile')
 var makeParticles = require('./lib/particles')
 var createHover = require('./lib/hover')
@@ -15,12 +15,10 @@ var opts = {
   inverseY: true,
   // world data
   chunkSize: 32,
-  generator: worldgen.generator, // pass in a more interesting generator function
-  texturePath: 'textures/',
   chunkAddDistance: 2,
   chunkRemoveDistance: 3,
   // rendering
-  worldScale: 0.5,
+  texturePath: 'textures/',
   // player
   playerStart: [0.5,15,0.5],
   playerHeight: 1.4,
@@ -34,7 +32,8 @@ var game = noa( opts )
 var addParticles = makeParticles(game)
 var launchProjectile = projectile(game, addParticles)
 
-worldgen.registerBlocks(game)
+// set up world generation
+initWorldGen(game)
 
 
 
