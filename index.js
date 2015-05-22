@@ -120,6 +120,14 @@ game.inputs.down.on('invertY', function() {
 })
 
 
+// toggle pointerlock on "L"
+game.inputs.bind('toggleLock', 'L')
+game.inputs.down.on('toggleLock', function() {
+  var locked = game.container.hasPointerLock()
+  game.container.setPointerLock(!locked)
+})
+
+
 /*
  *  Minimal 'UI' (help menu) and a button to toggle it
 */
