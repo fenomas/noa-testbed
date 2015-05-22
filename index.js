@@ -88,6 +88,10 @@ for (var i=0; i<numMobs; ++i) {
 
 // on left mouse, set targeted block to be air
 game.inputs.down.on('fire', function() {
+  // skip click if just gaining pointer lock
+  var cont = game.container
+  if (!cont.hasPointerLock() && cont.supportsPointerLock()) return
+
   var loc = game.getTargetBlock()
   if (loc) {
     game.setBlock(0, loc)
