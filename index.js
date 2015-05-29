@@ -128,6 +128,15 @@ game.inputs.down.on('toggleLock', function() {
 })
 
 
+// toggle pause on "P"
+var paused = false
+game.inputs.bind('togglePause', 'P')
+game.inputs.down.on('togglePause', function() {
+  paused = !paused
+  game.setPaused(paused)
+})
+
+
 /*
  *  Minimal 'UI' (help menu) and a button to toggle it
 */
