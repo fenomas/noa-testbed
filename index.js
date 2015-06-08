@@ -52,11 +52,13 @@ var pmesh = atlas.makeSpriteMesh( stand_frame )
 var ph = opts.playerHeight,
     pw = opts.playerWidth
 
+// visual width of sprite slightly wider than hitbox
+var vw = pw * 1.25
+
 var stand_frame = 'player_stand.png'
 var jump_frame = 'player_jump.png'
 
-//var pmesh = game.rendering.makeEntitySpriteMesh('playersprite', 30, 30, 0)
-pmesh.scaling = new BABYLON.Vector3(pw, ph, 1)
+pmesh.scaling = new BABYLON.Vector3(vw, ph, 1)
 game.setPlayerMesh(pmesh, [pw/2, ph/2, pw/2], true )
 
 // simplest animation evar
@@ -68,7 +70,7 @@ game.playerEntity.on('tick',function() {
   
   if (game.inputs.state.left) facing = -1
   if (game.inputs.state.right) facing = 1
-  game.playerEntity.mesh.scaling.x = pw * facing
+  game.playerEntity.mesh.scaling.x = vw * facing
 })
 
 
