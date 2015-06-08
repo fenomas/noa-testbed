@@ -1,5 +1,6 @@
 var vec3 = require('gl-vec3')
 var noa = require('noa-engine')
+var Atlas = require('babylon-atlas')
 
 // local modules
 var createUI = require('./lib/ui')
@@ -19,10 +20,11 @@ var opts = {
   chunkRemoveDistance: 3,
   // rendering
   texturePath: 'textures/',
+  maxCameraZoom: 15,
   // player
   playerStart: [0.5,15,0.5],
   playerHeight: 1.4,
-  playerWidth: 1.0  ,
+  playerWidth: 0.9  ,
   playerAutoStep: true,
 }
 
@@ -39,26 +41,31 @@ initWorldGen(game)
 
 
 /*
- *    placeholder mesh for the player
+ *    simple mesh for player, using texture atlas
 */
 
-// register a spritesheet which has player/mob sprites
-game.registry.registerMaterial('playersprite', null, 'player.png')
-
+var atlas = new Atlas('textures/atlas.png', 'textures/atlas.json', 
+                      game.rendering.getScene(), BABYLON,
+                      true, BABYLON.Texture.NEAREST_SAMPLINGMODE)
+var pmesh = atlas.makeSpriteMesh( stand_frame )
 
 var ph = opts.playerHeight,
     pw = opts.playerWidth
 
-var pmesh = game.rendering.makeEntitySpriteMesh('playersprite', 30, 30, 0)
+var stand_frame = 'player_stand.png'
+var jump_frame = 'player_jump.png'
+
+//var pmesh = game.rendering.makeEntitySpriteMesh('playersprite', 30, 30, 0)
 pmesh.scaling = new BABYLON.Vector3(pw, ph, 1)
-game.setPlayerMesh(pmesh, [pw/2, ph/2, pw/2] )
+game.setPlayerMesh(pmesh, [pw/2, ph/2, pw/2], true )
 
 // simplest animation evar
 var facing = 1
 game.playerEntity.on('tick',function() {
   var onground = this.body.resting[1] < 0
-  var cell = (onground) ? 0 : 1
-  this.mesh._setCell(cell)
+  var fr = (onground) ? stand_frame : jump_frame
+  atlas.setMeshFrame(pmesh, fr)
+  
   if (game.inputs.state.left) facing = -1
   if (game.inputs.state.right) facing = 1
   game.playerEntity.mesh.scaling.x = pw * facing
@@ -75,7 +82,7 @@ for (var i=0; i<numMobs; ++i) {
   var x = 50 - 100*Math.random()
   var y =  8 +   8*Math.random()
   var z = 50 - 100*Math.random()
-  createMob( game, size, size, x, y, z )
+  createMob( game, atlas, size, size, x, y, z )
 }
 
 
