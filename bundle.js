@@ -1,6 +1,7 @@
 (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
 var vec3 = require('gl-vec3')
 var noa = require('noa-engine')
+var Atlas = require('babylon-atlas')
 
 // local modules
 var createUI = require('./lib/ui')
@@ -20,10 +21,11 @@ var opts = {
   chunkRemoveDistance: 3,
   // rendering
   texturePath: 'textures/',
+  maxCameraZoom: 15,
   // player
   playerStart: [0.5,15,0.5],
   playerHeight: 1.4,
-  playerWidth: 1.0  ,
+  playerWidth: 0.9  ,
   playerAutoStep: true,
 }
 
@@ -40,29 +42,36 @@ initWorldGen(game)
 
 
 /*
- *    placeholder mesh for the player
+ *    simple mesh for player, using texture atlas
 */
 
-// register a spritesheet which has player/mob sprites
-game.registry.registerMaterial('playersprite', null, 'player.png')
-
+var atlas = new Atlas('textures/atlas.png', 'textures/atlas.json', 
+                      game.rendering.getScene(), BABYLON,
+                      true, BABYLON.Texture.NEAREST_SAMPLINGMODE)
+var pmesh = atlas.makeSpriteMesh( stand_frame )
 
 var ph = opts.playerHeight,
     pw = opts.playerWidth
 
-var pmesh = game.rendering.makeEntitySpriteMesh('playersprite', 30, 30, 0)
-pmesh.scaling = new BABYLON.Vector3(pw, ph, 1)
-game.setPlayerMesh(pmesh, [pw/2, ph/2, pw/2] )
+// visual width of sprite slightly wider than hitbox
+var vw = pw * 1.25
+
+var stand_frame = 'player_stand.png'
+var jump_frame = 'player_jump.png'
+
+pmesh.scaling = new BABYLON.Vector3(vw, ph, 1)
+game.setPlayerMesh(pmesh, [pw/2, ph/2, pw/2], true )
 
 // simplest animation evar
 var facing = 1
 game.playerEntity.on('tick',function() {
   var onground = this.body.resting[1] < 0
-  var cell = (onground) ? 0 : 1
-  this.mesh._setCell(cell)
+  var fr = (onground) ? stand_frame : jump_frame
+  atlas.setMeshFrame(pmesh, fr)
+  
   if (game.inputs.state.left) facing = -1
   if (game.inputs.state.right) facing = 1
-  game.playerEntity.mesh.scaling.x = pw * facing
+  game.playerEntity.mesh.scaling.x = vw * facing
 })
 
 
@@ -76,7 +85,7 @@ for (var i=0; i<numMobs; ++i) {
   var x = 50 - 100*Math.random()
   var y =  8 +   8*Math.random()
   var z = 50 - 100*Math.random()
-  createMob( game, size, size, x, y, z )
+  createMob( game, atlas, size, size, x, y, z )
 }
 
 
@@ -89,6 +98,10 @@ for (var i=0; i<numMobs; ++i) {
 
 // on left mouse, set targeted block to be air
 game.inputs.down.on('fire', function() {
+  // skip click if just gaining pointer lock
+  var cont = game.container
+  if (!cont.hasPointerLock() && cont.supportsPointerLock()) return
+
   var loc = game.getTargetBlock()
   if (loc) {
     game.setBlock(0, loc)
@@ -114,6 +127,23 @@ game.inputs.down.on('alt-fire', function() {
 game.inputs.bind('invertY', 'I')
 game.inputs.down.on('invertY', function() {
   game.controls.inverseY = !game.controls.inverseY
+})
+
+
+// toggle pointerlock on "L"
+game.inputs.bind('toggleLock', 'L')
+game.inputs.down.on('toggleLock', function() {
+  var locked = game.container.hasPointerLock()
+  game.container.setPointerLock(!locked)
+})
+
+
+// toggle pause on "P"
+var paused = false
+game.inputs.bind('togglePause', 'P')
+game.inputs.down.on('togglePause', function() {
+  paused = !paused
+  game.setPaused(paused)
 })
 
 
@@ -162,7 +192,7 @@ game.inputs.down.on('conway-ss', function() {
 
 
 
-},{"./lib/conway":2,"./lib/hover":3,"./lib/mob":4,"./lib/particles":5,"./lib/projectile":6,"./lib/ui":7,"./lib/worldgen":8,"gl-vec3":21,"noa-engine":49}],2:[function(require,module,exports){
+},{"./lib/conway":2,"./lib/hover":3,"./lib/mob":4,"./lib/particles":5,"./lib/projectile":6,"./lib/ui":7,"./lib/worldgen":8,"babylon-atlas":10,"gl-vec3":30,"noa-engine":58}],2:[function(require,module,exports){
 'use strict';
 
 
@@ -355,7 +385,7 @@ Life.prototype.transitionToNextState = function() {
 
 
 
-},{"ndarray-hash":43}],3:[function(require,module,exports){
+},{"ndarray-hash":52}],3:[function(require,module,exports){
 'use strict';
 
 
@@ -427,16 +457,15 @@ var vec3 = require('gl-vec3')
 module.exports = createMob
 
 
-var registered = false
+var atlas = null
+var stand_frame = 'mob_stand.png'
+var jump_frame = 'mob_jump.png'
 
-function createMob( game, w, h, x, y, z ) {
+function createMob( game, _atlas, w, h, x, y, z ) {
   var scene = game.rendering.getScene()
-  if (!registered) {
-    game.registry.registerMaterial('mobsprite', null, 'mob.png')
-    registered = true
-  }
+  atlas = _atlas
 
-  var mesh = game.rendering.makeEntitySpriteMesh('mobsprite', 24, 24, 0)
+  var mesh = atlas.makeSpriteMesh( stand_frame )
   mesh.scaling = new BABYLON.Vector3(w, h, 1)
   
   var offset = [w/2, h/2, w/2]
@@ -447,7 +476,8 @@ function createMob( game, w, h, x, y, z ) {
     [x,y,z],              // starting loc
     w, h, mesh, offset,   // size, mesh, mesh offset
     dat, true,            // data object, do physics
-    true, true, true      // collide terrain, collide entities, shadow
+    true, true,           // collide terrain, collide entities
+    true, true            // shadow, isSprite
   )
   ent.body.friction = 5
   ent.body.gravityMultiplier = 1.5
@@ -474,8 +504,8 @@ function collideEntity(game, other) {
 function mobTick(dt) {
   /* jshint validthis:true */
   var onground = this.body.resting[1] < 0
-  var cell = (onground) ? 0 : 1
-  this.mesh._setCell(cell)
+  var fr = (onground) ? stand_frame : jump_frame
+  atlas.setMeshFrame(this.mesh, fr)
   
   if (onground && Math.random() < .01) {   // jump!
     var x = 4-8*Math.random()
@@ -488,7 +518,7 @@ function mobTick(dt) {
 
 
 
-},{"gl-vec3":21}],5:[function(require,module,exports){
+},{"gl-vec3":30}],5:[function(require,module,exports){
 'use strict';
 /* globals BABYLON */
 
@@ -743,7 +773,7 @@ function addBlocksInSphere(game, id, pos, radius, particleAdder) {
   }
 }
 
-},{"gl-vec3":21}],7:[function(require,module,exports){
+},{"gl-vec3":30}],7:[function(require,module,exports){
 'use strict';
 
 
@@ -855,10 +885,9 @@ function registerBlocks(game) {
 
   // register a custom mesh to be used for occurrences of the block
   game.registry.registerMaterial('flowersprite', null, 'flower.png')
-  var mesh = game.rendering.makeEntitySpriteMesh('flowersprite', 16, 16, 0)
-  var mat = BABYLON.Matrix.Translation(0, 0.5, 0)
-  mesh.bakeTransformIntoVertices(mat)
-  mesh.billboardMode = 2; //BABYLON.Mesh.BILLBOARDMODE_ALL
+  var mesh = game.rendering.makeSpriteMesh('flowersprite')
+  var offset = BABYLON.Matrix.Translation(0, 0.5, 0)
+  mesh.bakeTransformIntoVertices(offset)
   reg.registerMesh('flowerMesh', mesh, null)
 }
 
@@ -921,7 +950,7 @@ function getBlockIDObject() {
 
 
 
-},{"./worldgen_worker":9,"ndarray":46,"ndhash":48,"simplex-noise":196,"webworkify":197}],9:[function(require,module,exports){
+},{"./worldgen_worker":9,"ndarray":55,"ndhash":57,"simplex-noise":205,"webworkify":206}],9:[function(require,module,exports){
 'use strict';
 
 var SimplexNoise = require('simplex-noise')
@@ -1114,7 +1143,508 @@ module.exports = function (self) {
 
 
 
-},{"ndarray":46,"ndhash":48,"simplex-noise":196}],10:[function(require,module,exports){
+},{"ndarray":55,"ndhash":57,"simplex-noise":205}],10:[function(require,module,exports){
+
+module.exports = Atlas
+
+var loader = require('load-json-xhr')
+
+
+
+
+// Atlas constructor - keeps the json data and a base texture
+
+function Atlas(imgURL, jsonURL, scene, BAB, noMip, sampling) {
+  if (!(this instanceof Atlas)) {
+    return new Atlas(imgURL, jsonURL, scene, BAB, noMip, sampling)
+  }
+
+  this._ready = false
+  this._scene = scene
+  this._BABYLON = BAB
+  this._data = null
+
+  this.frames = []
+
+  var dataReady = false
+  var texReady = false
+  var self = this
+
+  // json loader and event
+  loader(jsonURL, function(err, data) {
+    if (err) throw err
+    self._data = data
+    dataReady = true
+    if (texReady) initSelf(self);
+  })
+
+  // texture loader and event
+  this._baseTexture = new BAB.Texture(imgURL, scene, noMip, true, sampling, function() {
+    texReady = true
+    if (dataReady) initSelf(self);
+  })
+
+  // atlas will almost always need alpha
+  this._baseTexture.hasAlpha = true
+}
+
+// called once json + image are both loaded
+/* Expects json like:
+      {"frames":{
+        "frame_001": {"frame": {"x":0, "y":32,"w":22,"h":18} },
+        "frame_002": {"frame": {"x":53,"y":0, "w":22,"h":21} }
+      }}
+*/
+function initSelf(self) {
+  for (var s in self._data.frames) {
+    self.frames.push(s)
+  }
+  self._ready = true
+}
+
+
+
+
+Atlas.prototype.makeSpriteMesh = function(frame, material) {
+  var BAB = this._BABYLON
+  if (!frame)    frame = 0
+  
+  // make a material unless one was passed in
+  if (!material) {
+    material = new BAB.StandardMaterial('spriteMat', this._scene)
+    material.specularColor = new BAB.Color3(0,0,0)
+    material.emissiveColor = new BAB.Color3(1,1,1)
+    material.backFaceCulling = false
+  }
+
+  // plane mesh and setup
+  var mesh = this._BABYLON.Mesh.CreatePlane('atlas sprite', 1, this._scene)
+  mesh.material = material
+  material.diffuseTexture = this._baseTexture.clone()
+  // decoration property used by this module
+  mesh._currentAtlasFrame = null
+
+  setFrame(this, mesh, frame)
+  return mesh
+}
+
+
+// public accessor
+Atlas.prototype.setMeshFrame = function(mesh, frame) {
+  setFrame(this, mesh, frame)
+}
+
+
+
+
+// Set a mesh's texture to show a given frame of the altas.
+// Transparently handles case where atlas hasn't finished loading.
+// Also decorates mesh object with property to track current atlas frame
+
+function setFrame(self, mesh, frame) {
+  if (!self._ready) {
+    setTimeout(function() { setFrame(self, mesh, frame) }, 10)
+    return
+  }
+
+  var framestr = (typeof frame === 'number') ? self.frames[frame] : frame
+  if (framestr === mesh._currentAtlasFrame) return
+  
+  var dat = self._data.frames[framestr]
+  if (!dat) {
+    throw new Error('babylon-atlas: frame "'+frame+'" not found in atlas')
+    return
+  }
+
+  var size = self._baseTexture.getSize()
+  var tex = mesh.material.diffuseTexture
+
+  var w = dat.frame.w
+  var h = dat.frame.h
+  var x = dat.frame.x
+  var y = dat.frame.y
+
+  tex.uScale = w/size.width
+  tex.vScale = h/size.height
+  tex.uOffset = ( size.width /2 - x)/w - 0.5
+  tex.vOffset = (-size.height/2 + y)/h + 0.5
+
+  mesh._currentAtlasFrame = framestr
+}
+
+
+
+
+
+
+// dispose method - disposes babylon objects
+
+Atlas.prototype.dispose = function() {
+  this._baseTexture.dispose()
+  this._data = null
+  this._scene = null
+  this._BABYLON = null
+  this.frames.length = 0
+}
+
+
+
+},{"load-json-xhr":11}],11:[function(require,module,exports){
+var xhr = require("xhr");
+
+module.exports = function getJSON(opt, cb) {
+  cb = typeof cb === 'function' ? cb : noop;
+
+  if (typeof opt === 'string')
+    opt = { uri: opt };
+  else if (!opt)
+    opt = { };
+
+  // if (!opt.headers)
+  //   opt.headers = { "Content-Type": "application/json" };
+
+  var jsonResponse = /^json$/i.test(opt.responseType);
+  return xhr(opt, function(err, res, body) {
+    if (err)
+      return cb(err);
+    if (!/^2/.test(res.statusCode))
+      return cb(new Error('http status code: ' + res.statusCode));
+
+    if (jsonResponse) { 
+      cb(null, body);
+    } else {
+      var data;
+      try {
+        data = JSON.parse(body);
+      } catch (e) {
+        cb(new Error('cannot parse json: ' + e));
+      }
+      if(data) cb(null, data);
+    }
+  })
+}
+
+function noop() {}
+},{"xhr":12}],12:[function(require,module,exports){
+"use strict";
+var window = require("global/window")
+var once = require("once")
+var parseHeaders = require("parse-headers")
+
+
+var XHR = window.XMLHttpRequest || noop
+var XDR = "withCredentials" in (new XHR()) ? XHR : window.XDomainRequest
+
+module.exports = createXHR
+
+function createXHR(options, callback) {
+    function readystatechange() {
+        if (xhr.readyState === 4) {
+            loadFunc()
+        }
+    }
+
+    function getBody() {
+        // Chrome with requestType=blob throws errors arround when even testing access to responseText
+        var body = undefined
+
+        if (xhr.response) {
+            body = xhr.response
+        } else if (xhr.responseType === "text" || !xhr.responseType) {
+            body = xhr.responseText || xhr.responseXML
+        }
+
+        if (isJson) {
+            try {
+                body = JSON.parse(body)
+            } catch (e) {}
+        }
+
+        return body
+    }
+    
+    var failureResponse = {
+                body: undefined,
+                headers: {},
+                statusCode: 0,
+                method: method,
+                url: uri,
+                rawRequest: xhr
+            }
+    
+    function errorFunc(evt) {
+        clearTimeout(timeoutTimer)
+        if(!(evt instanceof Error)){
+            evt = new Error("" + (evt || "unknown") )
+        }
+        evt.statusCode = 0
+        callback(evt, failureResponse)
+    }
+
+    // will load the data & process the response in a special response object
+    function loadFunc() {
+        clearTimeout(timeoutTimer)
+        
+        var status = (xhr.status === 1223 ? 204 : xhr.status)
+        var response = failureResponse
+        var err = null
+        
+        if (status !== 0){
+            response = {
+                body: getBody(),
+                statusCode: status,
+                method: method,
+                headers: {},
+                url: uri,
+                rawRequest: xhr
+            }
+            if(xhr.getAllResponseHeaders){ //remember xhr can in fact be XDR for CORS in IE
+                response.headers = parseHeaders(xhr.getAllResponseHeaders())
+            }
+        } else {
+            err = new Error("Internal XMLHttpRequest Error")
+        }
+        callback(err, response, response.body)
+        
+    }
+    
+    if (typeof options === "string") {
+        options = { uri: options }
+    }
+
+    options = options || {}
+    if(typeof callback === "undefined"){
+        throw new Error("callback argument missing")
+    }
+    callback = once(callback)
+
+    var xhr = options.xhr || null
+
+    if (!xhr) {
+        if (options.cors || options.useXDR) {
+            xhr = new XDR()
+        }else{
+            xhr = new XHR()
+        }
+    }
+
+    var key
+    var uri = xhr.url = options.uri || options.url
+    var method = xhr.method = options.method || "GET"
+    var body = options.body || options.data
+    var headers = xhr.headers = options.headers || {}
+    var sync = !!options.sync
+    var isJson = false
+    var timeoutTimer
+
+    if ("json" in options) {
+        isJson = true
+        headers["Accept"] || (headers["Accept"] = "application/json") //Don't override existing accept header declared by user
+        if (method !== "GET" && method !== "HEAD") {
+            headers["Content-Type"] = "application/json"
+            body = JSON.stringify(options.json)
+        }
+    }
+
+    xhr.onreadystatechange = readystatechange
+    xhr.onload = loadFunc
+    xhr.onerror = errorFunc
+    // IE9 must have onprogress be set to a unique function.
+    xhr.onprogress = function () {
+        // IE must die
+    }
+    xhr.ontimeout = errorFunc
+    xhr.open(method, uri, !sync)
+    //has to be after open
+    xhr.withCredentials = !!options.withCredentials
+    
+    // Cannot set timeout with sync request
+    // not setting timeout on the xhr object, because of old webkits etc. not handling that correctly
+    // both npm's request and jquery 1.x use this kind of timeout, so this is being consistent
+    if (!sync && options.timeout > 0 ) {
+        timeoutTimer = setTimeout(function(){
+            xhr.abort("timeout");
+        }, options.timeout+2 );
+    }
+
+    if (xhr.setRequestHeader) {
+        for(key in headers){
+            if(headers.hasOwnProperty(key)){
+                xhr.setRequestHeader(key, headers[key])
+            }
+        }
+    } else if (options.headers) {
+        throw new Error("Headers cannot be set on an XDomainRequest object")
+    }
+
+    if ("responseType" in options) {
+        xhr.responseType = options.responseType
+    }
+    
+    if ("beforeSend" in options && 
+        typeof options.beforeSend === "function"
+    ) {
+        options.beforeSend(xhr)
+    }
+
+    xhr.send(body)
+
+    return xhr
+
+
+}
+
+
+function noop() {}
+
+},{"global/window":13,"once":14,"parse-headers":18}],13:[function(require,module,exports){
+(function (global){
+if (typeof window !== "undefined") {
+    module.exports = window;
+} else if (typeof global !== "undefined") {
+    module.exports = global;
+} else if (typeof self !== "undefined"){
+    module.exports = self;
+} else {
+    module.exports = {};
+}
+
+}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{}],14:[function(require,module,exports){
+module.exports = once
+
+once.proto = once(function () {
+  Object.defineProperty(Function.prototype, 'once', {
+    value: function () {
+      return once(this)
+    },
+    configurable: true
+  })
+})
+
+function once (fn) {
+  var called = false
+  return function () {
+    if (called) return
+    called = true
+    return fn.apply(this, arguments)
+  }
+}
+
+},{}],15:[function(require,module,exports){
+var isFunction = require('is-function')
+
+module.exports = forEach
+
+var toString = Object.prototype.toString
+var hasOwnProperty = Object.prototype.hasOwnProperty
+
+function forEach(list, iterator, context) {
+    if (!isFunction(iterator)) {
+        throw new TypeError('iterator must be a function')
+    }
+
+    if (arguments.length < 3) {
+        context = this
+    }
+    
+    if (toString.call(list) === '[object Array]')
+        forEachArray(list, iterator, context)
+    else if (typeof list === 'string')
+        forEachString(list, iterator, context)
+    else
+        forEachObject(list, iterator, context)
+}
+
+function forEachArray(array, iterator, context) {
+    for (var i = 0, len = array.length; i < len; i++) {
+        if (hasOwnProperty.call(array, i)) {
+            iterator.call(context, array[i], i, array)
+        }
+    }
+}
+
+function forEachString(string, iterator, context) {
+    for (var i = 0, len = string.length; i < len; i++) {
+        // no such thing as a sparse string.
+        iterator.call(context, string.charAt(i), i, string)
+    }
+}
+
+function forEachObject(object, iterator, context) {
+    for (var k in object) {
+        if (hasOwnProperty.call(object, k)) {
+            iterator.call(context, object[k], k, object)
+        }
+    }
+}
+
+},{"is-function":16}],16:[function(require,module,exports){
+module.exports = isFunction
+
+var toString = Object.prototype.toString
+
+function isFunction (fn) {
+  var string = toString.call(fn)
+  return string === '[object Function]' ||
+    (typeof fn === 'function' && string !== '[object RegExp]') ||
+    (typeof window !== 'undefined' &&
+     // IE8 and below
+     (fn === window.setTimeout ||
+      fn === window.alert ||
+      fn === window.confirm ||
+      fn === window.prompt))
+};
+
+},{}],17:[function(require,module,exports){
+
+exports = module.exports = trim;
+
+function trim(str){
+  return str.replace(/^\s*|\s*$/g, '');
+}
+
+exports.left = function(str){
+  return str.replace(/^\s*/, '');
+};
+
+exports.right = function(str){
+  return str.replace(/\s*$/, '');
+};
+
+},{}],18:[function(require,module,exports){
+var trim = require('trim')
+  , forEach = require('for-each')
+  , isArray = function(arg) {
+      return Object.prototype.toString.call(arg) === '[object Array]';
+    }
+
+module.exports = function (headers) {
+  if (!headers)
+    return {}
+
+  var result = {}
+
+  forEach(
+      trim(headers).split('\n')
+    , function (row) {
+        var index = row.indexOf(':')
+          , key = trim(row.slice(0, index)).toLowerCase()
+          , value = trim(row.slice(index + 1))
+
+        if (typeof(result[key]) === 'undefined') {
+          result[key] = value
+        } else if (isArray(result[key])) {
+          result[key].push(value)
+        } else {
+          result[key] = [ result[key], value ]
+        }
+      }
+  )
+
+  return result
+}
+},{"for-each":15,"trim":17}],19:[function(require,module,exports){
 module.exports = add;
 
 /**
@@ -1131,7 +1661,7 @@ function add(out, a, b) {
     out[2] = a[2] + b[2]
     return out
 }
-},{}],11:[function(require,module,exports){
+},{}],20:[function(require,module,exports){
 module.exports = angle
 
 var fromValues = require('./fromValues')
@@ -1160,7 +1690,7 @@ function angle(a, b) {
     }     
 }
 
-},{"./dot":18,"./fromValues":20,"./normalize":29}],12:[function(require,module,exports){
+},{"./dot":27,"./fromValues":29,"./normalize":38}],21:[function(require,module,exports){
 module.exports = clone;
 
 /**
@@ -1176,7 +1706,7 @@ function clone(a) {
     out[2] = a[2]
     return out
 }
-},{}],13:[function(require,module,exports){
+},{}],22:[function(require,module,exports){
 module.exports = copy;
 
 /**
@@ -1192,7 +1722,7 @@ function copy(out, a) {
     out[2] = a[2]
     return out
 }
-},{}],14:[function(require,module,exports){
+},{}],23:[function(require,module,exports){
 module.exports = create;
 
 /**
@@ -1207,7 +1737,7 @@ function create() {
     out[2] = 0
     return out
 }
-},{}],15:[function(require,module,exports){
+},{}],24:[function(require,module,exports){
 module.exports = cross;
 
 /**
@@ -1227,7 +1757,7 @@ function cross(out, a, b) {
     out[2] = ax * by - ay * bx
     return out
 }
-},{}],16:[function(require,module,exports){
+},{}],25:[function(require,module,exports){
 module.exports = distance;
 
 /**
@@ -1243,7 +1773,7 @@ function distance(a, b) {
         z = b[2] - a[2]
     return Math.sqrt(x*x + y*y + z*z)
 }
-},{}],17:[function(require,module,exports){
+},{}],26:[function(require,module,exports){
 module.exports = divide;
 
 /**
@@ -1260,7 +1790,7 @@ function divide(out, a, b) {
     out[2] = a[2] / b[2]
     return out
 }
-},{}],18:[function(require,module,exports){
+},{}],27:[function(require,module,exports){
 module.exports = dot;
 
 /**
@@ -1273,7 +1803,7 @@ module.exports = dot;
 function dot(a, b) {
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
-},{}],19:[function(require,module,exports){
+},{}],28:[function(require,module,exports){
 module.exports = forEach;
 
 var vec = require('./create')()
@@ -1318,7 +1848,7 @@ function forEach(a, stride, offset, count, fn, arg) {
         
         return a
 }
-},{"./create":14}],20:[function(require,module,exports){
+},{"./create":23}],29:[function(require,module,exports){
 module.exports = fromValues;
 
 /**
@@ -1336,7 +1866,7 @@ function fromValues(x, y, z) {
     out[2] = z
     return out
 }
-},{}],21:[function(require,module,exports){
+},{}],30:[function(require,module,exports){
 module.exports = {
   create: require('./create')
   , clone: require('./clone')
@@ -1371,7 +1901,7 @@ module.exports = {
   , rotateZ: require('./rotateZ')
   , forEach: require('./forEach')
 }
-},{"./add":10,"./angle":11,"./clone":12,"./copy":13,"./create":14,"./cross":15,"./distance":16,"./divide":17,"./dot":18,"./forEach":19,"./fromValues":20,"./inverse":22,"./length":23,"./lerp":24,"./max":25,"./min":26,"./multiply":27,"./negate":28,"./normalize":29,"./random":30,"./rotateX":31,"./rotateY":32,"./rotateZ":33,"./scale":34,"./scaleAndAdd":35,"./set":36,"./squaredDistance":37,"./squaredLength":38,"./subtract":39,"./transformMat3":40,"./transformMat4":41,"./transformQuat":42}],22:[function(require,module,exports){
+},{"./add":19,"./angle":20,"./clone":21,"./copy":22,"./create":23,"./cross":24,"./distance":25,"./divide":26,"./dot":27,"./forEach":28,"./fromValues":29,"./inverse":31,"./length":32,"./lerp":33,"./max":34,"./min":35,"./multiply":36,"./negate":37,"./normalize":38,"./random":39,"./rotateX":40,"./rotateY":41,"./rotateZ":42,"./scale":43,"./scaleAndAdd":44,"./set":45,"./squaredDistance":46,"./squaredLength":47,"./subtract":48,"./transformMat3":49,"./transformMat4":50,"./transformQuat":51}],31:[function(require,module,exports){
 module.exports = inverse;
 
 /**
@@ -1387,7 +1917,7 @@ function inverse(out, a) {
   out[2] = 1.0 / a[2]
   return out
 }
-},{}],23:[function(require,module,exports){
+},{}],32:[function(require,module,exports){
 module.exports = length;
 
 /**
@@ -1402,7 +1932,7 @@ function length(a) {
         z = a[2]
     return Math.sqrt(x*x + y*y + z*z)
 }
-},{}],24:[function(require,module,exports){
+},{}],33:[function(require,module,exports){
 module.exports = lerp;
 
 /**
@@ -1423,7 +1953,7 @@ function lerp(out, a, b, t) {
     out[2] = az + t * (b[2] - az)
     return out
 }
-},{}],25:[function(require,module,exports){
+},{}],34:[function(require,module,exports){
 module.exports = max;
 
 /**
@@ -1440,7 +1970,7 @@ function max(out, a, b) {
     out[2] = Math.max(a[2], b[2])
     return out
 }
-},{}],26:[function(require,module,exports){
+},{}],35:[function(require,module,exports){
 module.exports = min;
 
 /**
@@ -1457,7 +1987,7 @@ function min(out, a, b) {
     out[2] = Math.min(a[2], b[2])
     return out
 }
-},{}],27:[function(require,module,exports){
+},{}],36:[function(require,module,exports){
 module.exports = multiply;
 
 /**
@@ -1474,7 +2004,7 @@ function multiply(out, a, b) {
     out[2] = a[2] * b[2]
     return out
 }
-},{}],28:[function(require,module,exports){
+},{}],37:[function(require,module,exports){
 module.exports = negate;
 
 /**
@@ -1490,7 +2020,7 @@ function negate(out, a) {
     out[2] = -a[2]
     return out
 }
-},{}],29:[function(require,module,exports){
+},{}],38:[function(require,module,exports){
 module.exports = normalize;
 
 /**
@@ -1514,7 +2044,7 @@ function normalize(out, a) {
     }
     return out
 }
-},{}],30:[function(require,module,exports){
+},{}],39:[function(require,module,exports){
 module.exports = random;
 
 /**
@@ -1536,7 +2066,7 @@ function random(out, scale) {
     out[2] = z * scale
     return out
 }
-},{}],31:[function(require,module,exports){
+},{}],40:[function(require,module,exports){
 module.exports = rotateX;
 
 /**
@@ -1566,7 +2096,7 @@ function rotateX(out, a, b, c){
 
     return out
 }
-},{}],32:[function(require,module,exports){
+},{}],41:[function(require,module,exports){
 module.exports = rotateY;
 
 /**
@@ -1596,7 +2126,7 @@ function rotateY(out, a, b, c){
   
     return out
 }
-},{}],33:[function(require,module,exports){
+},{}],42:[function(require,module,exports){
 module.exports = rotateZ;
 
 /**
@@ -1626,7 +2156,7 @@ function rotateZ(out, a, b, c){
   
     return out
 }
-},{}],34:[function(require,module,exports){
+},{}],43:[function(require,module,exports){
 module.exports = scale;
 
 /**
@@ -1643,7 +2173,7 @@ function scale(out, a, b) {
     out[2] = a[2] * b
     return out
 }
-},{}],35:[function(require,module,exports){
+},{}],44:[function(require,module,exports){
 module.exports = scaleAndAdd;
 
 /**
@@ -1661,7 +2191,7 @@ function scaleAndAdd(out, a, b, scale) {
     out[2] = a[2] + (b[2] * scale)
     return out
 }
-},{}],36:[function(require,module,exports){
+},{}],45:[function(require,module,exports){
 module.exports = set;
 
 /**
@@ -1679,7 +2209,7 @@ function set(out, x, y, z) {
     out[2] = z
     return out
 }
-},{}],37:[function(require,module,exports){
+},{}],46:[function(require,module,exports){
 module.exports = squaredDistance;
 
 /**
@@ -1695,7 +2225,7 @@ function squaredDistance(a, b) {
         z = b[2] - a[2]
     return x*x + y*y + z*z
 }
-},{}],38:[function(require,module,exports){
+},{}],47:[function(require,module,exports){
 module.exports = squaredLength;
 
 /**
@@ -1710,7 +2240,7 @@ function squaredLength(a) {
         z = a[2]
     return x*x + y*y + z*z
 }
-},{}],39:[function(require,module,exports){
+},{}],48:[function(require,module,exports){
 module.exports = subtract;
 
 /**
@@ -1727,7 +2257,7 @@ function subtract(out, a, b) {
     out[2] = a[2] - b[2]
     return out
 }
-},{}],40:[function(require,module,exports){
+},{}],49:[function(require,module,exports){
 module.exports = transformMat3;
 
 /**
@@ -1745,7 +2275,7 @@ function transformMat3(out, a, m) {
     out[2] = x * m[2] + y * m[5] + z * m[8]
     return out
 }
-},{}],41:[function(require,module,exports){
+},{}],50:[function(require,module,exports){
 module.exports = transformMat4;
 
 /**
@@ -1766,7 +2296,7 @@ function transformMat4(out, a, m) {
     out[2] = (m[2] * x + m[6] * y + m[10] * z + m[14]) / w
     return out
 }
-},{}],42:[function(require,module,exports){
+},{}],51:[function(require,module,exports){
 module.exports = transformQuat;
 
 /**
@@ -1795,7 +2325,7 @@ function transformQuat(out, a, q) {
     out[2] = iz * qw + iw * -qz + ix * -qy - iy * -qx
     return out
 }
-},{}],43:[function(require,module,exports){
+},{}],52:[function(require,module,exports){
 "use strict"
 
 var ndarray = require("ndarray")
@@ -1820,7 +2350,7 @@ function createNDHash(shape) {
 }
 
 module.exports = createNDHash
-},{"ndarray":44}],44:[function(require,module,exports){
+},{"ndarray":53}],53:[function(require,module,exports){
 (function (Buffer){
 var iota = require("iota-array")
 
@@ -2168,7 +2698,7 @@ function wrappedNDArrayCtor(data, shape, stride, offset) {
 
 module.exports = wrappedNDArrayCtor
 }).call(this,require("buffer").Buffer)
-},{"buffer":198,"iota-array":45}],45:[function(require,module,exports){
+},{"buffer":207,"iota-array":54}],54:[function(require,module,exports){
 "use strict"
 
 function iota(n) {
@@ -2180,11 +2710,11 @@ function iota(n) {
 }
 
 module.exports = iota
-},{}],46:[function(require,module,exports){
-module.exports=require(44)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/ndarray-hash/node_modules/ndarray/ndarray.js":44,"buffer":198,"iota-array":47}],47:[function(require,module,exports){
-module.exports=require(45)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/ndarray-hash/node_modules/ndarray/node_modules/iota-array/iota.js":45}],48:[function(require,module,exports){
+},{}],55:[function(require,module,exports){
+module.exports=require(53)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/ndarray-hash/node_modules/ndarray/ndarray.js":53,"buffer":207,"iota-array":56}],56:[function(require,module,exports){
+module.exports=require(54)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/ndarray-hash/node_modules/ndarray/node_modules/iota-array/iota.js":54}],57:[function(require,module,exports){
 
 /*
  *  ndhash
@@ -2220,7 +2750,7 @@ function hash() {
 module.exports = hash
 
 
-},{}],49:[function(require,module,exports){
+},{}],58:[function(require,module,exports){
 
 var aabb = require('aabb-3d')
 var vec3 = require('gl-vec3')
@@ -2262,6 +2792,7 @@ function Engine(opts) {
   if (!(this instanceof Engine)) return new Engine(opts)
   opts = extend(defaults, opts)
   this._tickRate = opts.tickRate
+  this._paused = false
 
   // container (html/div) manager
   this.container = createContainer(this, opts)
@@ -2305,7 +2836,7 @@ function Engine(opts) {
     null, null,     // no mesh, no meshOffset, 
     {}, true,       // empty data object, do physics
     true, true,     // collideTerrain, collideEntities
-    true            // shadow
+    true, false     // shadow, isSprite
   )
   this.playerEntity.body.gravityMultiplier = 2 // less floaty
   this.playerEntity.body.autoStep = opts.playerAutoStep // auto step onto blocks
@@ -2353,6 +2884,7 @@ inherits( Engine, EventEmitter )
 
 
 Engine.prototype.tick = function() {
+  if (this._paused) return
   var dt = this._tickRate    // fixed timesteps!
   this.world.tick(dt)        // chunk creation/removal
   this.rendering.tick(dt)    // deferred remeshing of updated chunks
@@ -2366,6 +2898,7 @@ Engine.prototype.tick = function() {
 
 
 Engine.prototype.render = function(framePart) {
+  if (this._paused) return
   var dt = framePart*this._tickRate // ms since last tick
   // only move camera during pointerlock or mousedown, or if pointerlock is unsupported
   if (this.container.hasPointerLock() || 
@@ -2388,6 +2921,14 @@ Engine.prototype.render = function(framePart) {
 /*
  *   Utility APIs
 */ 
+
+Engine.prototype.setPaused = function(paused) {
+  this._paused = !!paused
+  // when unpausing, clear any built-up mouse inputs
+  if (!paused) {
+    this.inputs.state.dx = this.inputs.state.dy = 0
+  }
+}
 
 Engine.prototype.getBlock = function(x, y, z) {
   var arr = (x.length) ? x : [x,y,z]
@@ -2470,9 +3011,18 @@ Engine.prototype.setBlockTargets = function() {
 
 
 // set a mesh and position offset for the player entity.
-Engine.prototype.setPlayerMesh = function(mesh, meshOffset) {
+Engine.prototype.setPlayerMesh = function(mesh, meshOffset, isSprite) {
   this.playerEntity.mesh = mesh
   this.playerEntity.meshOffset = meshOffset
+  this.playerEntity.isSprite = isSprite
+  
+  if (window.DEBUG_OCTREES) {
+    this.rendering.addDynamicMesh(mesh)
+  }
+  if (isSprite) {
+    this.rendering.setUpSpriteMesh(mesh)
+  }
+  
 }
 
 /*
@@ -2487,7 +3037,7 @@ Engine.prototype.setPlayerMesh = function(mesh, meshOffset) {
 
 
 
-},{"./lib/container":51,"./lib/controls":52,"./lib/entities":53,"./lib/inputs":54,"./lib/physics":55,"./lib/registry":56,"./lib/rendering":57,"./lib/world":58,"aabb-3d":59,"events":202,"extend":71,"gl-vec3":96,"inherits":118,"ndarray":119,"voxel-raycast":195}],50:[function(require,module,exports){
+},{"./lib/container":60,"./lib/controls":61,"./lib/entities":62,"./lib/inputs":63,"./lib/physics":64,"./lib/registry":65,"./lib/rendering":66,"./lib/world":67,"aabb-3d":68,"events":211,"extend":80,"gl-vec3":105,"inherits":127,"ndarray":128,"voxel-raycast":204}],59:[function(require,module,exports){
 'use strict';
 
 var ndarray = require('ndarray')
@@ -2532,7 +3082,7 @@ function Chunk( noa, i, j, k, size ) {
   this.isDisposed = false
   this.isGenerated = false
   this.isMeshed = false
-  
+
   // packed data storage
   var s = size+2 // 1 block of padding on each side
   var arr = new Uint16Array(s*s*s)
@@ -2632,7 +3182,7 @@ Chunk.prototype.initData = function() {
     arr[i] = packID(arr[i], sol, op, obj)
   }
   this._terrainDirty = true
-  
+
   // remake local view on assumption that data has changed
   this._unpaddedView = this.array.lo(1,1,1).hi(this.size,this.size,this.size)
 
@@ -2651,7 +3201,7 @@ Chunk.prototype.initData = function() {
       }
     }
   }
-  
+
   this.isGenerated = true
 }
 
@@ -2699,11 +3249,10 @@ Chunk.prototype.dispose = function() {
 
 // create a Submesh (class below) of meshes needed for this chunk
 
-Chunk.prototype.mesh = function(getMaterial, getColor, doAO, aoValues) {
+Chunk.prototype.mesh = function(getMaterial, getColor, doAO, aoValues, revAoVal) {
   if (!this._objectMeshesInitted) this.initObjectMeshes()
   this._terrainDirty = false
-  if (!aoValues) aoValues = [ 1, 0.75, 0.5 ]
-  var res = greedyND(this.array, getMaterial, getColor, doAO, aoValues)
+  var res = greedyND(this.array, getMaterial, getColor, doAO, aoValues, revAoVal)
   this.isMeshed = true
   return res
 }
@@ -2800,65 +3349,68 @@ function addObjectMeshAt(chunk, id, x,y,z) {
  *        getColor: function( materialID )
  *             looks up a color (3-array) by material ID
  *             TODO: replace this with a lookup array?
- *        ao: whether or not to bake ambient occlusion into vertex colors
- *        aoValues: array of multipliers for AO levels 0-2 (0 is no occlusion)
+ *        doAO: whether or not to bake ambient occlusion into vertex colors
+ *        aoValues: array[3] of color multipliers for AO (least to most occluded)
+ *        revAoVal: "reverse ao" - color multiplier for unoccluded exposed edges
  *
  *    Return object: array of mesh objects keyed by material ID
- *        arr[id].vertices - ints, range 0 .. X/Y/Z
- *        arr[id].indices  - ints
- *        arr[id].normals  - ints,   -1 .. 1
- *        arr[id].colors   - floats,  0 .. 1
- *        arr[id].uvs      - floats,  0 .. X/Y/Z
+ *        arr[id] = {
+ *          id:       material id for mesh
+ *          vertices: ints, range 0 .. X/Y/Z
+ *          indices:  ints
+ *          normals:  ints,   -1 .. 1
+ *          colors:   floats,  0 .. 1
+ *          uvs:      floats,  0 .. X/Y/Z
+ *        }
 */
 
 
-var mask = new Int8Array(4096),
-    aomask = new Int8Array(4096)
+var maskCache = new Int8Array(4096),
+    aomaskCache = new Uint8Array(4096)
 
-var d, u, v, 
-    arrT, len0, len1, len2,
-    i, j, k, n, 
-    id0, id1, cmp, id, dir, maskVal, block, l, m, w, h,
-    ao, jpos, jneg,
-    ao00, ao01, ao10, ao11, du, dv, 
-    x, q, m1, m2, pos, norm,
-    matID, mesh, c, triDir, vs
+var t0=0, t1=0, t3=0, ct=0
 
-var DEBUG = 0
-if (DEBUG) { var t0=0, t1=0, t3=0, timeStart, time0, time1, time2, ct=0 }
+function greedyND(arr, getMaterial, getColor, doAO, aoValues, revAoVal) {
 
-function greedyND(arr, getMaterial, getColor, doAO, aoValues) {
-
-  if (DEBUG) timeStart = performance.now()
+  var DEBUG = 1, timeStart, time0, time1, time2
+  if (DEBUG) { timeStart = performance.now() }
 
   // return object, holder for Submeshes
   var submeshes = []
 
   //Sweep over each axis, mapping axes to [d,u,v]
-  for(d=0; d<3; ++d) {
-    u = (d+1)%3
-    v = (d+2)%3
+  for(var d=0; d<3; ++d) {
+    var u = (d+1)%3
+    var v = (d+2)%3
 
     // make transposed ndarray so index i is the axis we're sweeping
     var tmp = arr.transpose(d,u,v)
-    arrT = tmp.lo(1,1,1).hi(tmp.shape[0]-2, tmp.shape[1]-2, tmp.shape[2]-2)
-    len0 = arrT.shape[0]-1
-    len1 = arrT.shape[1]
-    len2 = arrT.shape[2]
+    var arrT = tmp.lo(1,1,1).hi(tmp.shape[0]-2, tmp.shape[1]-2, tmp.shape[2]-2)
+    var len0 = arrT.shape[0]-1
+    var len1 = arrT.shape[1]
+    var len2 = arrT.shape[2]
 
     // preallocate mask arrays if needed
-    if (mask.length < len1 * len2) {
-      mask =   new Int8Array(len1*len2)
-      aomask = new Int8Array(len1*len2)
+    if (maskCache.length < len1 * len2) {
+      maskCache = new Int8Array(len1*len2)
+      aomaskCache = new Uint8Array(len1*len2)
     }
+    var mask = maskCache
+    var aomask = aomaskCache
+
+    // iterators used in both big loops
+    var i, j, k, n, maskVal
 
     // iterate along current major axis
     for( i=0; i<=len0; ++i ) {
 
       if (DEBUG) time0 = performance.now()
 
+      // precalc whether we can skip reverse AO inside loop
+      var skipReverseAO = (doAO && (revAoVal===aoValues[0]))
+      window.skipping = skipReverseAO
       // iterate across ith 2d plane, with n being index into masks
-      n = 0;
+      n = 0
       for(k=0; k<len2; ++k) {
         for(j=0; j<len1; ++j) {
 
@@ -2866,12 +3418,11 @@ function greedyND(arr, getMaterial, getColor, doAO, aoValues) {
           // for now, assume we never have two faces in both directions
           // So mask value is face material id, sign is direction
 
-          id0 = arrT.get(i-1, j, k)
-          id1 = arrT.get(  i, j, k)
+          var id0 = arrT.get(i-1, j, k)
+          var id1 = arrT.get(  i, j, k)
 
           var op0 = id0 & OPAQUE_BIT
           var op1 = id1 & OPAQUE_BIT
-
 
           // draw no face if both blocks are opaque, or if ids match
           // otherwise, draw a face if one block is opaque or the other is air
@@ -2881,48 +3432,27 @@ function greedyND(arr, getMaterial, getColor, doAO, aoValues) {
 
           if ( ! (id0===id1 || op0&&op1)) {
             if (op0 || (id1===0 && !(id0 & OBJECT_BIT) )) {
-              id = id0 & ID_MASK
-              maskVal =  getMaterial(id, d*2)
+              maskVal =  getMaterial(id0 & ID_MASK, d*2)
             }
             if (op1 || (id0===0 && !(id1 & OBJECT_BIT) )) {
-              id = id1 & ID_MASK
-              maskVal = -getMaterial(id, d*2+1)
+              maskVal = -getMaterial(id1 & ID_MASK, d*2+1)
             }
           }
           mask[n] = maskVal
 
-          // if doing AO, for each box that needs a face precalculate the 
-          // occluded-ness of its neighbors (on side the face points)
-
+          // if doing AO, precalculate AO level for each face into second mask
           if (maskVal && doAO) {
+            // i values in direction face is/isn't pointing
+            var ipos = (maskVal>0) ? i : i-1
+            var ineg = (maskVal>0) ? i-1 : i
 
-            l = (maskVal>0) ? i : i-1
-
-            if (arrT.get(l,j,k) & SOLID_BIT) {
-              // face points into non-zero block, so treat as fully occluded
+            if (arrT.get(ipos,j,k) & SOLID_BIT) {
+              // face points into a solid (non-opaque) block, so treat as fully occluded
               aomask[n] = 255 // i.e. (1<<8)-1, or 8 bits of occlusion
             } else {
-              // construct aomask - mask of nonzero-ness of neighbors in "l" plane
-              // shape: 
-              //       1     2     4   ^ K
-              //     128           8   +> J
-              //      64    32    16
-              ao = 0
-
-              ao |= 
-                (arrT.get(l, j-1, k+1) & SOLID_BIT  ?   1 : 0)  |
-                (arrT.get(l,   j, k+1) & SOLID_BIT  ?   2 : 0)  |
-                (arrT.get(l, j+1, k+1) & SOLID_BIT  ?   4 : 0)  |
-                (arrT.get(l, j-1,   k) & SOLID_BIT  ? 128 : 0)  |
-                (arrT.get(l, j+1,   k) & SOLID_BIT  ?   8 : 0)  |
-                (arrT.get(l, j-1, k-1) & SOLID_BIT  ?  64 : 0)  |
-                (arrT.get(l,   j, k-1) & SOLID_BIT  ?  32 : 0)  |
-                (arrT.get(l, j+1, k-1) & SOLID_BIT  ?  16 : 0) 
-
-              aomask[n] = ao
+              // this got so big I rolled it into a function
+              aomask[n] = packAOMask( arrT, ipos, ineg, j, k, skipReverseAO )
             }
-
-
           }
           // done, advance mask index
           ++n
@@ -2934,20 +3464,21 @@ function greedyND(arr, getMaterial, getColor, doAO, aoValues) {
 
 
       // Masks are set, now step through them generating meshes
+      var m, w, h
       n = 0
       for(k=0; k<len2; ++k) {
         for(j=0; j<len1; ) {
           if (mask[n]) {
 
             maskVal = mask[n]
-            dir = (maskVal > 0)
-            ao = aomask[n]
+            var dir = (maskVal > 0)
+            var ao = aomask[n]
 
             //Compute width of area with same mask/aomask values
             if (doAO) {
-              for(w=1; maskVal==mask[n+w] && ao==aomask[n+w] && j+w<len1; ++w) { }
+              for(w=1; maskVal===mask[n+w] && ao===aomask[n+w] && j+w<len1; ++w) { }
             } else {
-              for(w=1; maskVal==mask[n+w] && j+w<len1; ++w) { }
+              for(w=1; maskVal===mask[n+w] && j+w<len1; ++w) { }
             }
 
             // Compute height (this is slightly awkward)
@@ -2955,10 +3486,10 @@ function greedyND(arr, getMaterial, getColor, doAO, aoValues) {
             for(h=1; k+h<len2; ++h) {
               for(m=0; m<w; ++m) {
                 if (doAO) {
-                  if(maskVal!=mask[n+m+h*len1] || (ao!=aomask[n+m+h*len1]) )
+                  if( maskVal!==mask[n+m+h*len1] || (ao!==aomask[n+m+h*len1]) )
                     break heightloop;
                 } else {
-                  if(maskVal!=mask[n+m+h*len1]) 
+                  if(maskVal!==mask[n+m+h*len1]) 
                     break heightloop;
                 }
               }
@@ -2968,21 +3499,22 @@ function greedyND(arr, getMaterial, getColor, doAO, aoValues) {
             //w=h=1
 
             // material and mesh for this face
-            matID = Math.abs(maskVal)
-            mesh = submeshes[matID]
-            if (!mesh) mesh = submeshes[matID] = new Submesh(matID)
-            c = getColor(matID)
+            var matID = Math.abs(maskVal)
+            if (!submeshes[matID]) submeshes[matID] = new Submesh(matID)
+            var mesh = submeshes[matID]
+            var c = getColor(matID)
 
+            var ao00, ao10, ao11, ao01
             // push AO-modified vertex colors (or just colors)
             if (doAO) {
-              ao00 = determineAO( ao,  0,  0 )
-              ao10 = determineAO( ao,  1,  0 )
-              ao11 = determineAO( ao,  1,  1 )
-              ao01 = determineAO( ao,  0,  1 )
-              pushAOColor( mesh.colors, c, ao00, aoValues )
-              pushAOColor( mesh.colors, c, ao10, aoValues )
-              pushAOColor( mesh.colors, c, ao11, aoValues )
-              pushAOColor( mesh.colors, c, ao01, aoValues )
+              ao00 = unpackAOMask( ao, 0, 0 )
+              ao10 = unpackAOMask( ao, 1, 0 )
+              ao11 = unpackAOMask( ao, 1, 1 )
+              ao01 = unpackAOMask( ao, 0, 1 )
+              pushAOColor( mesh.colors, c, ao00, aoValues, revAoVal )
+              pushAOColor( mesh.colors, c, ao10, aoValues, revAoVal )
+              pushAOColor( mesh.colors, c, ao11, aoValues, revAoVal )
+              pushAOColor( mesh.colors, c, ao01, aoValues, revAoVal )
             } else {
               mesh.colors.push( c[0], c[1], c[2], 1 )
               mesh.colors.push( c[0], c[1], c[2], 1 )
@@ -2991,19 +3523,18 @@ function greedyND(arr, getMaterial, getColor, doAO, aoValues) {
             }
 
             //Add quad, vertices = x -> x+du -> x+du+dv -> x+dv
-            x = [0,0,0]
+            var x = [0,0,0]
             x[d] = i
             x[u] = j
             x[v] = k
-            du = [0,0,0]; du[u] = w;
-            dv = [0,0,0]; dv[v] = h;
+            var du = [0,0,0]; du[u] = w;
+            var dv = [0,0,0]; dv[v] = h;
 
-            pos = mesh.positions
+            var pos = mesh.positions
             pos.push(x[0],             x[1],             x[2],
                      x[0]+du[0],       x[1]+du[1],       x[2]+du[2],
                      x[0]+du[0]+dv[0], x[1]+du[1]+dv[1], x[2]+du[2]+dv[2],
                      x[0]      +dv[0], x[1]      +dv[1], x[2]      +dv[2]  )
-
 
             // add uv values
             if (d===0) {
@@ -3023,8 +3554,16 @@ function greedyND(arr, getMaterial, getColor, doAO, aoValues) {
             // Add indexes, ordered clockwise for the facing direction;
             // decide which way to split the quad based on ao colors
 
-            triDir = (doAO) ? (ao00==ao11) || ao01!=ao10 : true
-            vs = pos.length/3 - 4
+            var triDir = true
+            if (doAO) {
+              if (ao00===ao11) {
+                triDir = (ao01===ao10) ? (ao00<ao01) : true
+              } else {
+                triDir = (ao01===ao10) ? false : (ao00+ao11>ao01+ao10)
+              }
+            }
+
+            var vs = pos.length/3 - 4
 
             if (maskVal<0) {
               if (triDir) {
@@ -3041,7 +3580,7 @@ function greedyND(arr, getMaterial, getColor, doAO, aoValues) {
             }
 
             // norms depend on which direction the mask was solid in..
-            norm = [0,0,0]
+            var norm = [0,0,0]
             norm[d] = maskVal>0 ? 1 : -1
             // same norm for all vertices
             mesh.normals.push(norm[0], norm[1], norm[2], 
@@ -3051,7 +3590,7 @@ function greedyND(arr, getMaterial, getColor, doAO, aoValues) {
 
 
             //Zero-out mask
-            for(l=0; l<h; ++l) {
+            for(var l=0; l<h; ++l) {
               for(m=0; m<w; ++m) {
                 mask[n+m+l*len1] = 0
               }
@@ -3066,15 +3605,18 @@ function greedyND(arr, getMaterial, getColor, doAO, aoValues) {
         }
       }
 
-      if (DEBUG) time2 = performance.now();
-      t0 += time1-time0; t1+=time2-time1
+      if (DEBUG) {
+        time2 = performance.now();
+        t0 += time1-time0; t1+=time2-time1
+      }
 
     }
   }
 
   if (DEBUG) {
     t3 += time2-timeStart; ct++
-    console.log('avg masking:', f(t0/ct),
+    console.log('took: ', (f(time2-timeStart)),
+                'avg masking:', f(t0/ct),
                 ' - meshing:', f(t1/ct),
                 ' - overall', f(t3/ct) )
   }
@@ -3086,27 +3628,100 @@ function greedyND(arr, getMaterial, getColor, doAO, aoValues) {
 function f(n) { return n.toFixed(2) }
 
 
-//
-// aomask shape: 
-//       1     2     4   ^ K
-//     128           8   +> J
-//      64    32    16
-//
-var side1, side2, corner
-function determineAO( aomask, jplus, kplus ) {
-  side1 = aomask & ((jplus) ? 8 : 128) ? 1 : 0
-  side2 = aomask & ((kplus) ? 2 : 32)  ? 1 : 0
-  if (side1 && side2) return 3
-  if (side1 || side2) return 1
-  corner = aomask & ( jplus ?
-                     (kplus ? 4 : 16) : (kplus ? 1 : 64) ) ? 1 : 0
-  return corner ? 1 : 0
+
+
+/* 
+ *  packAOMask:
+ *
+ *    For a given face, find occlusion levels for each vertex, then
+ *    pack 4 such (2-bit) values into one Uint8 value
+ * 
+ *  Occlusion levels:
+ *    1 is flat ground, 2 is partial occlusion, 3 is max (corners)
+ *    0 is "reverse occlusion" - an unoccluded exposed edge 
+ *  Packing order var(bit offset):
+ *      a01(2)  -   a11(6)   ^  K
+ *        -     -            +> J
+ *      a00(0)  -   a10(4)
+*/
+
+function packAOMask( data, ipos, ineg, j, k, skipReverse ) {
+  var a00 = 1
+  var a01 = 1
+  var a10 = 1
+  var a11 = 1
+  var solidBit = SOLID_BIT
+
+  // inc occlusion of vertex next to obstructed side
+  if (data.get(ipos, j+1, k  ) & solidBit) { ++a10; ++a11 }
+  if (data.get(ipos, j-1, k  ) & solidBit) { ++a00; ++a01 }
+  if (data.get(ipos, j  , k+1) & solidBit) { ++a01; ++a11 }
+  if (data.get(ipos, j  , k-1) & solidBit) { ++a00; ++a10 }
+
+  // if skipping reverse (exposed edge) AO, just check corners and bail
+  if (skipReverse) {
+
+    if (a11===1 && (data.get(ipos,j+1,k+1) & solidBit)) { a11 = 2 }
+    if (a01===1 && (data.get(ipos,j-1,k+1) & solidBit)) { a01 = 2 }
+    if (a10===1 && (data.get(ipos,j+1,k-1) & solidBit)) { a10 = 2 }
+    if (a00===1 && (data.get(ipos,j-1,k-1) & solidBit)) { a00 = 2 }
+
+  } else {
+
+    // otherwise handle corners, and if not present do reverse AO
+    if (a11===1) {
+      if (data.get(ipos, j+1, k+1) & solidBit) { a11 = 2 }
+      else if (!(data.get(ineg, j,   k+1) & solidBit) ||
+               !(data.get(ineg, j+1, k  ) & solidBit) ||
+               !(data.get(ineg, j+1, k+1) & solidBit)) {
+        a11 = 0
+      }
+    }
+
+    if (a10===1) {
+      if (data.get(ipos, j+1, k-1) & solidBit) { a10 = 2 }
+      else if (!(data.get(ineg, j  , k-1) & solidBit) ||
+               !(data.get(ineg, j+1, k  ) & solidBit) ||
+               !(data.get(ineg, j+1, k-1) & solidBit)) {
+        a10 = 0
+      }
+    }
+
+    if (a01===1) {
+      if (data.get(ipos, j-1, k+1) & solidBit) { a01 = 2 }
+      else if (!(data.get(ineg, j,   k+1) & solidBit) ||
+               !(data.get(ineg, j-1, k  ) & solidBit) ||
+               !(data.get(ineg, j-1, k+1) & solidBit)) {
+        a01 = 0
+      }
+    }
+
+    if (a00===1) {
+      if (data.get(ipos, j-1, k-1) & solidBit) { a00 = 2 }
+      else if (!(data.get(ineg, j,   k-1) & solidBit) ||
+               !(data.get(ineg, j-1, k  ) & solidBit) ||
+               !(data.get(ineg, j-1, k-1) & solidBit)) {
+        a00 = 0
+      }
+    }
+  }
+  return a11<<6 | a10<<4 | a01<<2 | a00
 }
 
-var mult
-function pushAOColor( colors, baseCol, ao, aoVals ) {
-  // ao values are 0/1/3 (most occluded); aoVals is [ least, medium, most ]
-  mult = (ao<3) ? aoVals[ao] : aoVals[2]
+
+
+// unpack (2 bit) ao value from ao mask
+// see above for details
+function unpackAOMask( aomask, jpos, kpos ) {
+  var offset = jpos ? (kpos ? 6 : 4) : (kpos ? 2 : 0)
+  return aomask >> offset & 3
+}
+
+
+// premultiply vertex colors by value depending on AO level
+// then push them into color array
+function pushAOColor( colors, baseCol, ao, aoVals, revAOval ) {
+  var mult = (ao===0) ? revAOval : aoVals[ao-1]
   colors.push( baseCol[0]*mult, baseCol[1]*mult, baseCol[2]*mult, 1 )
 }
 
@@ -3116,10 +3731,7 @@ function pushAOColor( colors, baseCol, ao, aoVals ) {
 
 
 
-
-
-
-},{"ndarray":119}],51:[function(require,module,exports){
+},{"ndarray":128}],60:[function(require,module,exports){
 'use strict';
 
 var extend = require('extend')
@@ -3196,6 +3808,12 @@ Container.prototype.hasPointerLock = function() {
 
 Container.prototype.supportsPointerLock = function() {
   return this._pointerLockSupported
+}
+
+
+Container.prototype.setPointerLock = function(lock) {
+  // not sure if this will work robustly
+  this._shell.pointerLock = !!lock
 }
 
 
@@ -3288,7 +3906,7 @@ function detectPointerLock(self) {
 
 
 
-},{"events":202,"extend":71,"game-shell":84,"inherits":118}],52:[function(require,module,exports){
+},{"events":211,"extend":80,"game-shell":93,"inherits":127}],61:[function(require,module,exports){
 'use strict';
 
 var createController = require('voxel-fps-controller')
@@ -3348,7 +3966,7 @@ function tickZoom(noa) {
 
 
 
-},{"extend":71,"voxel-fps-controller":121}],53:[function(require,module,exports){
+},{"extend":80,"voxel-fps-controller":130}],62:[function(require,module,exports){
 'use strict';
 
 var extend = require('extend')
@@ -3402,8 +4020,15 @@ proto.tick = function(dt) {
   doEntityCollisions(this)
   // set all shadow heights
   updateShadowHeights(this)
+  // adjust sprite entitiy mesh heights to face camera angle
+  var i, len = this.entities.length
+  var entarr = []
+  for (i=0; i<len; ++i) {
+    if (this.entities[i].isSprite) entarr.push(this.entities[i])
+  }
+  if (entarr.length) this.noa.rendering.adjustSpriteMeshHeights(entarr)
   // call tick functions
-  for (var i=0; i<this.entities.length; ++i) {
+  for (i=0; i<len; ++i) {
     this.entities[i].emit('tick',dt)
   }
 }
@@ -3460,7 +4085,7 @@ proto.add = function(position, width, height, // required
                       mesh, meshOffset, 
                       data, doPhysics,
                       collideTerrain, collideEntities,
-                      shadow ) {
+                      shadow, isSprite ) {
   // bounding box
   var bb = new aabb([position[0]-width/2, position[1], position[2]-width/2],
                     [width, height, width])
@@ -3468,7 +4093,11 @@ proto.add = function(position, width, height, // required
   var body = (doPhysics) ? this.noa.physics.addBody(bb) : null
   // entity class (data struct more or less)
   var ent = new Entity(bb, body, mesh, meshOffset, data, 
-                       collideTerrain, collideEntities )
+                       collideTerrain, collideEntities, isSprite )
+  if (mesh && window.DEBUG_OCTREES) this.noa.rendering.addDynamicMesh(mesh)
+  if (mesh && isSprite) {
+    this.noa.rendering.setUpSpriteMesh(mesh)
+  }
   if (shadow) addShadow(this, ent)
   this.entities.push(ent)
   return ent
@@ -3572,10 +4201,11 @@ function entEntCollision(entities, indexes, i, j) {
  *  data:     arbtitrary object
  *  collTerr: whether to prevent new terrain overlapping the entity
  *  collEnt:  whether to collision test with other entities
+ *  isSprite: whether mesh should be handled like a 2D billboard sprite
 */
 
 function Entity(bb, body, mesh, meshOffset, data, 
-                 collTerr, collEnt) {
+                 collTerr, collEnt, isSprite) {
   this.body = body || null
   this.mesh = mesh || null
   this.meshOffset = meshOffset || [0,0,0]
@@ -3583,6 +4213,7 @@ function Entity(bb, body, mesh, meshOffset, data,
   this.bb = (body) ? body.aabb : bb
   this.collideEntities = collEnt
   this.collideTerrain = collTerr
+  this.isSprite = isSprite
   // if physics terrain collisions needed, wrap physics engine's onCollide
   if (body && collTerr) {
     this.body.onCollide = onTerrainCollide.bind(null,this)
@@ -3609,7 +4240,7 @@ Entity.prototype.getPosition = function() {
 
 
 
-},{"aabb-3d":59,"box-intersect":61,"events":202,"extend":71,"gl-vec3":96,"inherits":118}],54:[function(require,module,exports){
+},{"aabb-3d":68,"box-intersect":70,"events":211,"extend":80,"gl-vec3":105,"inherits":127}],63:[function(require,module,exports){
 'use strict';
 
 var createInputs = require('game-inputs')
@@ -3654,7 +4285,7 @@ function makeInputs(noa, opts, element) {
 
 
 
-},{"extend":71,"game-inputs":72}],55:[function(require,module,exports){
+},{"extend":80,"game-inputs":81}],64:[function(require,module,exports){
 'use strict';
 
 var createPhysics = require('voxel-physics-engine')
@@ -3689,7 +4320,7 @@ function makePhysics(noa, opts) {
 
 
 
-},{"extend":71,"voxel-physics-engine":156}],56:[function(require,module,exports){
+},{"extend":80,"voxel-physics-engine":165}],65:[function(require,module,exports){
 'use strict';
 
 var extend = require('extend')
@@ -3719,6 +4350,7 @@ function Registry(noa, opts) {
   this._matData = []
   this._meshIDs = {}        // Mesh registry
   this._meshData = []
+//  this._atlases = {}
   
   // make several special arrays for often looked-up block properties
   // (hopefully v8 will inline the lookups..)
@@ -3804,18 +4436,20 @@ Registry.prototype.registerMaterial = function(name, color, textureURL, hasAlpha
 }
 
 
-// Sprite sheet assets for sprite-meshed entities
-Registry.prototype.registerSpritesheet = function(name, url, count, size) {
-  var id = this._spritesheetIDs[name] || this._spritesheetData.length
-  this._spritesheetIDs[name] = id
-  this._spritesheetData[id] = {
-    count: count,
-    size: size,
-    url: this._texturePath+url
-  }
-  return id
-}
+// Atlas (spritesheet) assets
 
+// Suspect it's better to leave atlases in client code - 
+//   remove this if I still feel that way later
+
+//Registry.prototype.registerAtlas = function(name, imgURL, jsonURL) {
+//  var atlas = this.noa.rendering.createTextureAtlas(imgURL, jsonURL)
+//  this._atlases[name] = atlas
+//  return atlas
+//}
+//
+//Registry.prototype.getAtlas = function(name) {
+//  return this._atlases[name]
+//}
 
 
 
@@ -3927,7 +4561,7 @@ Registry.prototype.getMaterialHasAlpha = function(matID) {
 
 
 
-},{"extend":71}],57:[function(require,module,exports){
+},{"extend":80}],66:[function(require,module,exports){
 'use strict';
 /* globals BABYLON */
 
@@ -3956,10 +4590,12 @@ var defaults = {
   lightDiffuse:     [ 1, 1, 1 ],
   lightSpecular:    [ 1, 1, 1 ],
   groundLightColor: [ 0.5, 0.5, 0.5 ],
-  minCameraZoom: 0,
+  initialCameraZoom: 0,
   cameraZoomSpeed: .3,
+  cameraMaxAngle: halfPi - 0.01,
   useAO: true,
-  AOmultipliers: [ 1, 0.8, 0.6 ],
+  AOmultipliers: [ 0.93, 0.8, 0.5 ],
+  reverseAOmultiplier: 1.0,
 }
 
 
@@ -3969,10 +4605,11 @@ var defaults = {
 function Rendering(noa, _opts, canvas) {
   this.noa = noa
   var opts = extend( {}, defaults, _opts )
-  this.zoomDistance = opts.minCameraZoom      // zoom setting
+  this.zoomDistance = opts.initialCameraZoom      // zoom setting
   this._cappedZoom = this.zoomDistance        // zoom, capped by obstacles
   this._currentZoom = this.zoomDistance       // current actual zoom level
   this._cameraZoomSpeed = opts.cameraZoomSpeed
+  this._maxCamAngle = opts.cameraMaxAngle
 
   // set up babylon scene
   initScene(this, canvas, opts)
@@ -3986,8 +4623,9 @@ function Rendering(noa, _opts, canvas) {
 
   // internals
   this._materialCache = {}
-  this.doAO = !!opts.useAO
+  this.useAO = !!opts.useAO
   this.aoVals = opts.AOmultipliers
+  this.revAoVal = opts.reverseAOmultiplier
 
   if (DEBUG_OCTREES) {
     this._octree = new BABYLON.Octree()
@@ -4027,7 +4665,7 @@ function initScene(self, canvas, opts) {
   self._light.groundColor = arrToColor( opts.groundLightColor )
 
   // create a mesh to serve as the built-in shadow mesh
-  var disc = BABYLON.Mesh.CreateDisc('shadowMesh', 0.5, 30, self._scene)
+  var disc = BABYLON.Mesh.CreateDisc('shadowMesh', 0.75, 30, self._scene)
   disc.rotation.x = halfPi
   self.noa.registry.registerMesh('shadow', disc)
   disc.material = new BABYLON.StandardMaterial('shadowMat', self._scene)
@@ -4114,70 +4752,62 @@ Rendering.prototype.getCameraRotation = function() {
 }
 Rendering.prototype.setCameraRotation = function(x,y) {
   var rot = this._rotationHolder.rotation
-  rot.x = x
+  rot.x = Math.max( -this._maxCamAngle, Math.min(this._maxCamAngle, x) )
   rot.y = y
 }
 
 
+// add a dynamic (mobile, non-terrain) mesh to the scene
+Rendering.prototype.addDynamicMesh = function(mesh) {
+  if (DEBUG_OCTREES) {
+    this._octree.dynamicContent.push(mesh)
+  }
+}
+
+// helper to make a mesh 'sprite-like' - i.e. billboarded
+Rendering.prototype.setUpSpriteMesh = function(mesh) {
+  mesh.billboardMode = BABYLON.Mesh.BILLBOARDMODE_Y
+}
 
 
-/*
- *   Entity sprite/mesh management
- *   Makes a sprite-like mesh with billboarding set to face camera
-*/
-
-Rendering.prototype.makeEntitySpriteMesh = function(matname, cellw, cellh, cellnum) {
+// helper function to make a billboard plane mesh showing a given sprite texture
+Rendering.prototype.makeSpriteMesh = function(matname) {
   var id = this.noa.registry.getMaterialId(matname)
   var url = this.noa.registry.getMaterialTexture(id)
   var tex = new BABYLON.Texture(url, this._scene, true, true,
                                 BABYLON.Texture.NEAREST_SAMPLINGMODE)
   tex.hasAlpha = true
-  var mesh = BABYLON.Mesh.CreatePlane(matname, 1, this._scene)
-  // uncached material since cell frame is tied to it
-  var mat = getEntitySpriteMaterial(this._scene).clone()
+  var mesh = BABYLON.Mesh.CreatePlane('sprite-'+matname, 1, this._scene)
+  var mat = new BABYLON.StandardMaterial('sprite-mat-'+matname, this._scene)
+  mat.specularColor = new col3(0,0,0)
+  mat.emissiveColor = new col3(1,1,1)
+  mat.backFaceCulling = false
   mat.diffuseTexture = tex
   mesh.material = mat
   mesh.billboardMode = BABYLON.Mesh.BILLBOARDMODE_Y
-  mesh._cellwidth = cellw
-  mesh._cellheight = cellh
-  mesh._lastcell = -1
-  mesh._setCell = setSpriteMeshCell.bind(mesh)
-  //  mesh._setCell(cellnum)
-
-  if (DEBUG_OCTREES) this._octree.dynamicContent.push(mesh)
 
   return mesh
 }
 
-var _spriteMat
-function getEntitySpriteMaterial(scene) {
-  if (!_spriteMat) {
-    _spriteMat = new BABYLON.StandardMaterial('entitySpriteMat', scene)
-    _spriteMat.specularColor = new col3(0,0,0)
-    _spriteMat.emissiveColor = new col3(1,1,1)
-    _spriteMat.backFaceCulling = false
+
+// adjust height of sprite-like mesh to face into camera at high/low angles
+Rendering.prototype.adjustSpriteMeshHeights = function(entArr) {
+  var cpos = this._camera.globalPosition
+  for (var i=0; i<entArr.length; ++i) {
+    var mesh = entArr[i].mesh
+    // find rotation at which mesh would, viewed from directly above/below,
+    // look as tall as its width
+    var w = entArr[i].bb.vec[0]
+    var h = entArr[i].bb.vec[1]
+    var maxRot = Math.asin(w/h)
+    if (isNaN(maxRot)) maxRot = halfPi
+    // actual camera angle
+    var diff = cpos.clone().subtractInPlace( mesh.position )
+    var angle = Math.atan2(diff.y, Math.sqrt(diff.x*diff.x + diff.z*diff.z))
+    // scale the one by the other
+    mesh.rotation.x = -maxRot * angle / halfPi
   }
-  return _spriteMat
 }
-
-function setSpriteMeshCell(cell) {
-  /* jshint validthis:true */
-  if (cell==this._lastcell) return
-  var tex = this.material.diffuseTexture
-  if (!tex.isReady()) { return }
-  var s = tex.getSize()
-  var cols = s.width/this._cellwidth
-  var rows = s.height/this._cellheight
-  tex.uScale = 1/cols
-  tex.vScale = 1/rows
-  var wholecols = cols>>0
-  var upos = cell % wholecols
-  var vpos = Math.floor(cell/wholecols)
-  tex.uOffset =  cols/2 - upos - 0.5
-  tex.vOffset = -rows/2 + vpos + 0.5
-  this._lastcell = cell
-}
-
 
 
 Rendering.prototype.makeMeshInstance = function(meshname, isTerrain) {
@@ -4283,7 +4913,7 @@ function meshChunk(self, chunk) {
   var matGetter = noa.registry.getBlockFaceMaterial.bind(noa.registry)
   var colGetter = noa.registry.getMaterialVertexColor.bind(noa.registry)
   // returns an array of chunk#Submesh
-  return chunk.mesh(matGetter, colGetter, self.doAO, self.aoVals )
+  return chunk.mesh(matGetter, colGetter, self.useAO, self.aoVals, self.revAoVal )
 }
 
 
@@ -4487,7 +5117,6 @@ function makeTerrainMaterial(self, id) {
     if (alpha) {
       tex.hasAlpha = true
       mat.diffuseTexture = tex
-      mat.useAlphaFromDiffuseTexture = true
     } else {
       mat.ambientTexture = tex
     }
@@ -4521,10 +5150,11 @@ function makeChunkMesh(self, meshdata, id, chunk) {
   if (DEBUG_FREEZE) mesh.freezeWorldMatrix()
 
   // preprocess meshdata entries to merge those that use default terrain material
-  var s, mdat
+  var s, mdat, i
   var first = null
-  for (s in meshdata) {
-    mdat = meshdata[s]
+  var keylist = Object.keys(meshdata)
+  for (i=0; i<keylist.length; ++i) {
+    mdat = meshdata[keylist[i]]
     var url = self.noa.registry.getMaterialTexture(mdat.id)
     if (url) continue
 
@@ -4538,8 +5168,8 @@ function makeChunkMesh(self, meshdata, id, chunk) {
       first.colors = first.colors.concat(mdat.colors)
       first.uvs = first.uvs.concat(mdat.uvs)
       // indices must be offset relative to data being merged onto
-      for (var i=0, len=mdat.indices.length; i<len; ++i) {
-        first.indices.push( mdat.indices[i] + offset )
+      for (var j=0, len=mdat.indices.length; j<len; ++j) {
+        first.indices.push( mdat.indices[j] + offset )
       }
       // get rid of entry that's been merged
       delete meshdata[s]
@@ -4547,8 +5177,9 @@ function makeChunkMesh(self, meshdata, id, chunk) {
   }
 
   // go through (remaining) meshdata entries and create a mesh for each
-  for (s in meshdata) {
-    mdat = meshdata[s]
+  keylist = Object.keys(meshdata)
+  for (i=0; i<keylist.length; ++i) {
+    mdat = meshdata[keylist[i]]
     var m = new BABYLON.Mesh( 'terr'+matID, self._scene )
     m.parent = mesh
 
@@ -4577,7 +5208,7 @@ function makeChunkMesh(self, meshdata, id, chunk) {
 
 function createOctreeBlock(self, mesh, chunk, x, y, z) {
   var octree = self._octree
-  
+
   if (chunk.octreeBlock) {
     var b = chunk.octreeBlock
     var i = octree.blocks.indexOf(b)
@@ -4585,7 +5216,7 @@ function createOctreeBlock(self, mesh, chunk, x, y, z) {
     if (b.entries) b.entries.length = 0
     chunk.octreeBlock = null
   }
-  
+
   var cs = chunk.size
   var min = new vec3(   x,    y,    z)
   var max = new vec3(x+cs, y+cs, z+cs)
@@ -4608,7 +5239,7 @@ function createOctreeBlock(self, mesh, chunk, x, y, z) {
 
 
 
-},{"extend":71,"gl-vec3":96}],58:[function(require,module,exports){
+},{"extend":80,"gl-vec3":105}],67:[function(require,module,exports){
 'use strict';
 
 var extend = require('extend')
@@ -4624,7 +5255,7 @@ module.exports = function(noa, opts) {
 
 
 var defaultOptions = {
-  chunkSize: 16,
+  chunkSize: 24,
   chunkAddDistance: 2,
   chunkRemoveDistance: 3
 
@@ -4915,7 +5546,7 @@ function findClosestChunk( ci, cj, ck, queue ) {
 
 
 
-},{"./chunk":50,"events":202,"extend":71,"inherits":118,"ndarray":119}],59:[function(require,module,exports){
+},{"./chunk":59,"events":211,"extend":80,"inherits":127,"ndarray":128}],68:[function(require,module,exports){
 module.exports = AABB
 
 var vec3 = require('gl-matrix').vec3
@@ -5032,7 +5663,7 @@ proto.union = function(aabb) {
 
 
 
-},{"gl-matrix":60}],60:[function(require,module,exports){
+},{"gl-matrix":69}],69:[function(require,module,exports){
 /**
  * @fileoverview gl-matrix - High performance matrix and vector operations
  * @author Brandon Jones
@@ -9282,7 +9913,7 @@ if(typeof(exports) !== 'undefined') {
   })(shim.exports);
 })(this);
 
-},{}],61:[function(require,module,exports){
+},{}],70:[function(require,module,exports){
 'use strict'
 
 module.exports = boxIntersectWrapper
@@ -9421,7 +10052,7 @@ function boxIntersectWrapper(arg0, arg1, arg2) {
       throw new Error('box-intersect: Invalid arguments')
   }
 }
-},{"./lib/intersect":63,"./lib/sweep":67,"typedarray-pool":70}],62:[function(require,module,exports){
+},{"./lib/intersect":72,"./lib/sweep":76,"typedarray-pool":79}],71:[function(require,module,exports){
 'use strict'
 
 var DIMENSION   = 'd'
@@ -9566,7 +10197,7 @@ function bruteForcePlanner(full) {
 
 exports.partial = bruteForcePlanner(false)
 exports.full    = bruteForcePlanner(true)
-},{}],63:[function(require,module,exports){
+},{}],72:[function(require,module,exports){
 'use strict'
 
 module.exports = boxIntersectIter
@@ -10061,7 +10692,7 @@ function boxIntersectIter(
     }
   }
 }
-},{"./brute":62,"./median":64,"./partition":65,"./sweep":67,"bit-twiddle":68,"typedarray-pool":70}],64:[function(require,module,exports){
+},{"./brute":71,"./median":73,"./partition":74,"./sweep":76,"bit-twiddle":77,"typedarray-pool":79}],73:[function(require,module,exports){
 'use strict'
 
 module.exports = findMedian
@@ -10204,7 +10835,7 @@ function findMedian(d, axis, start, end, boxes, ids) {
     start, mid, boxes, ids,
     boxes[elemSize*mid+axis])
 }
-},{"./partition":65}],65:[function(require,module,exports){
+},{"./partition":74}],74:[function(require,module,exports){
 'use strict'
 
 module.exports = genPartition
@@ -10225,7 +10856,7 @@ function genPartition(predicate, args) {
         .replace('$', predicate))
   return Function.apply(void 0, fargs)
 }
-},{}],66:[function(require,module,exports){
+},{}],75:[function(require,module,exports){
 'use strict';
 
 //This code is extracted from ndarray-sort
@@ -10462,7 +11093,7 @@ function quickSort(left, right, data) {
     quickSort(less, great, data);
   }
 }
-},{}],67:[function(require,module,exports){
+},{}],76:[function(require,module,exports){
 'use strict'
 
 module.exports = {
@@ -10897,7 +11528,7 @@ red_loop:
     }
   }
 }
-},{"./sort":66,"bit-twiddle":68,"typedarray-pool":70}],68:[function(require,module,exports){
+},{"./sort":75,"bit-twiddle":77,"typedarray-pool":79}],77:[function(require,module,exports){
 /**
  * Bit twiddling hacks for JavaScript.
  *
@@ -11103,7 +11734,7 @@ exports.nextCombination = function(v) {
 }
 
 
-},{}],69:[function(require,module,exports){
+},{}],78:[function(require,module,exports){
 "use strict"
 
 function dupe_array(count, value, i) {
@@ -11153,7 +11784,7 @@ function dupe(count, value) {
 }
 
 module.exports = dupe
-},{}],70:[function(require,module,exports){
+},{}],79:[function(require,module,exports){
 (function (global,Buffer){
 'use strict'
 
@@ -11370,7 +12001,7 @@ exports.clearCache = function clearCache() {
   }
 }
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {},require("buffer").Buffer)
-},{"bit-twiddle":68,"buffer":198,"dup":69}],71:[function(require,module,exports){
+},{"bit-twiddle":77,"buffer":207,"dup":78}],80:[function(require,module,exports){
 var hasOwn = Object.prototype.hasOwnProperty;
 var toString = Object.prototype.toString;
 var undefined;
@@ -11453,7 +12084,7 @@ module.exports = function extend() {
 };
 
 
-},{}],72:[function(require,module,exports){
+},{}],81:[function(require,module,exports){
 'use strict';
 
 var vkey = require('vkey')
@@ -11713,7 +12344,7 @@ function XOR(a,b) {
 
 
 
-},{"./lib/mousewheel-polyfill.js":73,"events":202,"vkey":74}],73:[function(require,module,exports){
+},{"./lib/mousewheel-polyfill.js":82,"events":211,"vkey":83}],82:[function(require,module,exports){
 //Adapted from here: https://developer.mozilla.org/en-US/docs/Web/Reference/Events/wheel?redirectlocale=en-US&redirectslug=DOM%2FMozilla_event_reference%2Fwheel
 
 var prefix = "", _addEventListener, onwheel, support;
@@ -11773,7 +12404,7 @@ module.exports = function( elem, callback, useCapture ) {
     _addWheelListener( elem, "MozMousePixelScroll", callback, useCapture );
   }
 };
-},{}],74:[function(require,module,exports){
+},{}],83:[function(require,module,exports){
 var ua = typeof window !== 'undefined' ? window.navigator.userAgent : ''
   , isOSX = /OS X/.test(ua)
   , isOpera = /Opera/.test(ua)
@@ -11911,7 +12542,7 @@ for(i = 112; i < 136; ++i) {
   output[i] = 'F'+(i-111)
 }
 
-},{}],75:[function(require,module,exports){
+},{}],84:[function(require,module,exports){
 if(typeof window.performance === "object") {
   if(window.performance.now) {
     module.exports = function() { return window.performance.now() }
@@ -11924,9 +12555,9 @@ if(typeof window.performance === "object") {
   module.exports = function() { return (new Date()).getTime() }
 }
 
-},{}],76:[function(require,module,exports){
-module.exports=require(73)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/noa-engine/node_modules/game-inputs/lib/mousewheel-polyfill.js":73}],77:[function(require,module,exports){
+},{}],85:[function(require,module,exports){
+module.exports=require(82)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/noa-engine/node_modules/game-inputs/lib/mousewheel-polyfill.js":82}],86:[function(require,module,exports){
 // http://paulirish.com/2011/requestanimationframe-for-smart-animating/
 // http://my.opera.com/emoller/blog/2011/12/20/requestanimationframe-for-smart-er-animating
  
@@ -11956,7 +12587,7 @@ if (!window.cancelAnimationFrame)
         clearTimeout(id);
     };
 
-},{}],78:[function(require,module,exports){
+},{}],87:[function(require,module,exports){
 "use strict"
 
 function compileSearch(funcName, predicate, reversed, extraArgs, useNdarray, earlyOut) {
@@ -12018,7 +12649,7 @@ module.exports = {
   eq: compileBoundsSearch("-", true, "EQ", true)
 }
 
-},{}],79:[function(require,module,exports){
+},{}],88:[function(require,module,exports){
 /*!
   * domready (c) Dustin Diaz 2014 - License MIT
   */
@@ -12050,7 +12681,7 @@ module.exports = {
 
 });
 
-},{}],80:[function(require,module,exports){
+},{}],89:[function(require,module,exports){
 "use strict"
 
 function invert(hash) {
@@ -12064,9 +12695,9 @@ function invert(hash) {
 }
 
 module.exports = invert
-},{}],81:[function(require,module,exports){
-module.exports=require(45)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/ndarray-hash/node_modules/ndarray/node_modules/iota-array/iota.js":45}],82:[function(require,module,exports){
+},{}],90:[function(require,module,exports){
+module.exports=require(54)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/ndarray-hash/node_modules/ndarray/node_modules/iota-array/iota.js":54}],91:[function(require,module,exports){
 "use strict"
 
 function unique_pred(list, compare) {
@@ -12125,9 +12756,9 @@ function unique(list, compare, sorted) {
 
 module.exports = unique
 
-},{}],83:[function(require,module,exports){
-module.exports=require(74)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/noa-engine/node_modules/game-inputs/node_modules/vkey/index.js":74}],84:[function(require,module,exports){
+},{}],92:[function(require,module,exports){
+module.exports=require(83)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/noa-engine/node_modules/game-inputs/node_modules/vkey/index.js":83}],93:[function(require,module,exports){
 "use strict"
 
 var EventEmitter = require("events").EventEmitter
@@ -12866,73 +13497,73 @@ function createShell(options) {
 
 module.exports = createShell
 
-},{"./lib/hrtime-polyfill.js":75,"./lib/mousewheel-polyfill.js":76,"./lib/raf-polyfill.js":77,"binary-search-bounds":78,"domready":79,"events":202,"invert-hash":80,"iota-array":81,"uniq":82,"util":206,"vkey":83}],85:[function(require,module,exports){
-module.exports=require(10)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/add.js":10}],86:[function(require,module,exports){
-module.exports=require(11)
-},{"./dot":93,"./fromValues":95,"./normalize":104,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/angle.js":11}],87:[function(require,module,exports){
-module.exports=require(12)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/clone.js":12}],88:[function(require,module,exports){
-module.exports=require(13)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/copy.js":13}],89:[function(require,module,exports){
-module.exports=require(14)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/create.js":14}],90:[function(require,module,exports){
-module.exports=require(15)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/cross.js":15}],91:[function(require,module,exports){
-module.exports=require(16)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/distance.js":16}],92:[function(require,module,exports){
-module.exports=require(17)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/divide.js":17}],93:[function(require,module,exports){
-module.exports=require(18)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/dot.js":18}],94:[function(require,module,exports){
+},{"./lib/hrtime-polyfill.js":84,"./lib/mousewheel-polyfill.js":85,"./lib/raf-polyfill.js":86,"binary-search-bounds":87,"domready":88,"events":211,"invert-hash":89,"iota-array":90,"uniq":91,"util":215,"vkey":92}],94:[function(require,module,exports){
 module.exports=require(19)
-},{"./create":89,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/forEach.js":19}],95:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/add.js":19}],95:[function(require,module,exports){
 module.exports=require(20)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/fromValues.js":20}],96:[function(require,module,exports){
+},{"./dot":102,"./fromValues":104,"./normalize":113,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/angle.js":20}],96:[function(require,module,exports){
 module.exports=require(21)
-},{"./add":85,"./angle":86,"./clone":87,"./copy":88,"./create":89,"./cross":90,"./distance":91,"./divide":92,"./dot":93,"./forEach":94,"./fromValues":95,"./inverse":97,"./length":98,"./lerp":99,"./max":100,"./min":101,"./multiply":102,"./negate":103,"./normalize":104,"./random":105,"./rotateX":106,"./rotateY":107,"./rotateZ":108,"./scale":109,"./scaleAndAdd":110,"./set":111,"./squaredDistance":112,"./squaredLength":113,"./subtract":114,"./transformMat3":115,"./transformMat4":116,"./transformQuat":117,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/index.js":21}],97:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/clone.js":21}],97:[function(require,module,exports){
 module.exports=require(22)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/inverse.js":22}],98:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/copy.js":22}],98:[function(require,module,exports){
 module.exports=require(23)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/length.js":23}],99:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/create.js":23}],99:[function(require,module,exports){
 module.exports=require(24)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/lerp.js":24}],100:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/cross.js":24}],100:[function(require,module,exports){
 module.exports=require(25)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/max.js":25}],101:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/distance.js":25}],101:[function(require,module,exports){
 module.exports=require(26)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/min.js":26}],102:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/divide.js":26}],102:[function(require,module,exports){
 module.exports=require(27)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/multiply.js":27}],103:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/dot.js":27}],103:[function(require,module,exports){
 module.exports=require(28)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/negate.js":28}],104:[function(require,module,exports){
+},{"./create":98,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/forEach.js":28}],104:[function(require,module,exports){
 module.exports=require(29)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/normalize.js":29}],105:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/fromValues.js":29}],105:[function(require,module,exports){
 module.exports=require(30)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/random.js":30}],106:[function(require,module,exports){
+},{"./add":94,"./angle":95,"./clone":96,"./copy":97,"./create":98,"./cross":99,"./distance":100,"./divide":101,"./dot":102,"./forEach":103,"./fromValues":104,"./inverse":106,"./length":107,"./lerp":108,"./max":109,"./min":110,"./multiply":111,"./negate":112,"./normalize":113,"./random":114,"./rotateX":115,"./rotateY":116,"./rotateZ":117,"./scale":118,"./scaleAndAdd":119,"./set":120,"./squaredDistance":121,"./squaredLength":122,"./subtract":123,"./transformMat3":124,"./transformMat4":125,"./transformQuat":126,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/index.js":30}],106:[function(require,module,exports){
 module.exports=require(31)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateX.js":31}],107:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/inverse.js":31}],107:[function(require,module,exports){
 module.exports=require(32)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateY.js":32}],108:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/length.js":32}],108:[function(require,module,exports){
 module.exports=require(33)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateZ.js":33}],109:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/lerp.js":33}],109:[function(require,module,exports){
 module.exports=require(34)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/scale.js":34}],110:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/max.js":34}],110:[function(require,module,exports){
 module.exports=require(35)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/scaleAndAdd.js":35}],111:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/min.js":35}],111:[function(require,module,exports){
 module.exports=require(36)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/set.js":36}],112:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/multiply.js":36}],112:[function(require,module,exports){
 module.exports=require(37)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/squaredDistance.js":37}],113:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/negate.js":37}],113:[function(require,module,exports){
 module.exports=require(38)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/squaredLength.js":38}],114:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/normalize.js":38}],114:[function(require,module,exports){
 module.exports=require(39)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/subtract.js":39}],115:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/random.js":39}],115:[function(require,module,exports){
 module.exports=require(40)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformMat3.js":40}],116:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateX.js":40}],116:[function(require,module,exports){
 module.exports=require(41)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformMat4.js":41}],117:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateY.js":41}],117:[function(require,module,exports){
 module.exports=require(42)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformQuat.js":42}],118:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateZ.js":42}],118:[function(require,module,exports){
+module.exports=require(43)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/scale.js":43}],119:[function(require,module,exports){
+module.exports=require(44)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/scaleAndAdd.js":44}],120:[function(require,module,exports){
+module.exports=require(45)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/set.js":45}],121:[function(require,module,exports){
+module.exports=require(46)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/squaredDistance.js":46}],122:[function(require,module,exports){
+module.exports=require(47)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/squaredLength.js":47}],123:[function(require,module,exports){
+module.exports=require(48)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/subtract.js":48}],124:[function(require,module,exports){
+module.exports=require(49)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformMat3.js":49}],125:[function(require,module,exports){
+module.exports=require(50)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformMat4.js":50}],126:[function(require,module,exports){
+module.exports=require(51)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformQuat.js":51}],127:[function(require,module,exports){
 if (typeof Object.create === 'function') {
   // implementation from standard node.js 'util' module
   module.exports = function inherits(ctor, superCtor) {
@@ -12957,11 +13588,11 @@ if (typeof Object.create === 'function') {
   }
 }
 
-},{}],119:[function(require,module,exports){
-module.exports=require(44)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/ndarray-hash/node_modules/ndarray/ndarray.js":44,"buffer":198,"iota-array":120}],120:[function(require,module,exports){
-module.exports=require(45)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/ndarray-hash/node_modules/ndarray/node_modules/iota-array/iota.js":45}],121:[function(require,module,exports){
+},{}],128:[function(require,module,exports){
+module.exports=require(53)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/ndarray-hash/node_modules/ndarray/ndarray.js":53,"buffer":207,"iota-array":129}],129:[function(require,module,exports){
+module.exports=require(54)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/ndarray-hash/node_modules/ndarray/node_modules/iota-array/iota.js":54}],130:[function(require,module,exports){
 'use strict';
 
 var vec3 = require('gl-vec3')
@@ -13200,75 +13831,75 @@ function clamp(value, to) {
   return isFinite(to) ? Math.max(Math.min(value, to), -to) : value
 }
 
-},{"extend":122,"gl-vec3":134}],122:[function(require,module,exports){
-module.exports=require(71)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/noa-engine/node_modules/extend/index.js":71}],123:[function(require,module,exports){
-module.exports=require(10)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/add.js":10}],124:[function(require,module,exports){
-module.exports=require(11)
-},{"./dot":131,"./fromValues":133,"./normalize":142,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/angle.js":11}],125:[function(require,module,exports){
-module.exports=require(12)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/clone.js":12}],126:[function(require,module,exports){
-module.exports=require(13)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/copy.js":13}],127:[function(require,module,exports){
-module.exports=require(14)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/create.js":14}],128:[function(require,module,exports){
-module.exports=require(15)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/cross.js":15}],129:[function(require,module,exports){
-module.exports=require(16)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/distance.js":16}],130:[function(require,module,exports){
-module.exports=require(17)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/divide.js":17}],131:[function(require,module,exports){
-module.exports=require(18)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/dot.js":18}],132:[function(require,module,exports){
+},{"extend":131,"gl-vec3":143}],131:[function(require,module,exports){
+module.exports=require(80)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/noa-engine/node_modules/extend/index.js":80}],132:[function(require,module,exports){
 module.exports=require(19)
-},{"./create":127,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/forEach.js":19}],133:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/add.js":19}],133:[function(require,module,exports){
 module.exports=require(20)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/fromValues.js":20}],134:[function(require,module,exports){
+},{"./dot":140,"./fromValues":142,"./normalize":151,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/angle.js":20}],134:[function(require,module,exports){
 module.exports=require(21)
-},{"./add":123,"./angle":124,"./clone":125,"./copy":126,"./create":127,"./cross":128,"./distance":129,"./divide":130,"./dot":131,"./forEach":132,"./fromValues":133,"./inverse":135,"./length":136,"./lerp":137,"./max":138,"./min":139,"./multiply":140,"./negate":141,"./normalize":142,"./random":143,"./rotateX":144,"./rotateY":145,"./rotateZ":146,"./scale":147,"./scaleAndAdd":148,"./set":149,"./squaredDistance":150,"./squaredLength":151,"./subtract":152,"./transformMat3":153,"./transformMat4":154,"./transformQuat":155,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/index.js":21}],135:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/clone.js":21}],135:[function(require,module,exports){
 module.exports=require(22)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/inverse.js":22}],136:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/copy.js":22}],136:[function(require,module,exports){
 module.exports=require(23)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/length.js":23}],137:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/create.js":23}],137:[function(require,module,exports){
 module.exports=require(24)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/lerp.js":24}],138:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/cross.js":24}],138:[function(require,module,exports){
 module.exports=require(25)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/max.js":25}],139:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/distance.js":25}],139:[function(require,module,exports){
 module.exports=require(26)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/min.js":26}],140:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/divide.js":26}],140:[function(require,module,exports){
 module.exports=require(27)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/multiply.js":27}],141:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/dot.js":27}],141:[function(require,module,exports){
 module.exports=require(28)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/negate.js":28}],142:[function(require,module,exports){
+},{"./create":136,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/forEach.js":28}],142:[function(require,module,exports){
 module.exports=require(29)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/normalize.js":29}],143:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/fromValues.js":29}],143:[function(require,module,exports){
 module.exports=require(30)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/random.js":30}],144:[function(require,module,exports){
+},{"./add":132,"./angle":133,"./clone":134,"./copy":135,"./create":136,"./cross":137,"./distance":138,"./divide":139,"./dot":140,"./forEach":141,"./fromValues":142,"./inverse":144,"./length":145,"./lerp":146,"./max":147,"./min":148,"./multiply":149,"./negate":150,"./normalize":151,"./random":152,"./rotateX":153,"./rotateY":154,"./rotateZ":155,"./scale":156,"./scaleAndAdd":157,"./set":158,"./squaredDistance":159,"./squaredLength":160,"./subtract":161,"./transformMat3":162,"./transformMat4":163,"./transformQuat":164,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/index.js":30}],144:[function(require,module,exports){
 module.exports=require(31)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateX.js":31}],145:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/inverse.js":31}],145:[function(require,module,exports){
 module.exports=require(32)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateY.js":32}],146:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/length.js":32}],146:[function(require,module,exports){
 module.exports=require(33)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateZ.js":33}],147:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/lerp.js":33}],147:[function(require,module,exports){
 module.exports=require(34)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/scale.js":34}],148:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/max.js":34}],148:[function(require,module,exports){
 module.exports=require(35)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/scaleAndAdd.js":35}],149:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/min.js":35}],149:[function(require,module,exports){
 module.exports=require(36)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/set.js":36}],150:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/multiply.js":36}],150:[function(require,module,exports){
 module.exports=require(37)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/squaredDistance.js":37}],151:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/negate.js":37}],151:[function(require,module,exports){
 module.exports=require(38)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/squaredLength.js":38}],152:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/normalize.js":38}],152:[function(require,module,exports){
 module.exports=require(39)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/subtract.js":39}],153:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/random.js":39}],153:[function(require,module,exports){
 module.exports=require(40)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformMat3.js":40}],154:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateX.js":40}],154:[function(require,module,exports){
 module.exports=require(41)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformMat4.js":41}],155:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateY.js":41}],155:[function(require,module,exports){
 module.exports=require(42)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformQuat.js":42}],156:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateZ.js":42}],156:[function(require,module,exports){
+module.exports=require(43)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/scale.js":43}],157:[function(require,module,exports){
+module.exports=require(44)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/scaleAndAdd.js":44}],158:[function(require,module,exports){
+module.exports=require(45)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/set.js":45}],159:[function(require,module,exports){
+module.exports=require(46)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/squaredDistance.js":46}],160:[function(require,module,exports){
+module.exports=require(47)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/squaredLength.js":47}],161:[function(require,module,exports){
+module.exports=require(48)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/subtract.js":48}],162:[function(require,module,exports){
+module.exports=require(49)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformMat3.js":49}],163:[function(require,module,exports){
+module.exports=require(50)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformMat4.js":50}],164:[function(require,module,exports){
+module.exports=require(51)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformQuat.js":51}],165:[function(require,module,exports){
 'use strict';
 
 var collisions = require('collide-3d-tilemap')
@@ -13486,11 +14117,11 @@ function setBoxPos(box, pos) {
   vec3.add( box.max, box.base, box.vec )
 }
 
-},{"./rigidBody":194,"aabb-3d":157,"collide-3d-tilemap":159,"extend":160,"gl-vec3":172}],157:[function(require,module,exports){
-module.exports=require(59)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/noa-engine/node_modules/aabb-3d/index.js":59,"gl-matrix":158}],158:[function(require,module,exports){
-module.exports=require(60)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/noa-engine/node_modules/aabb-3d/node_modules/gl-matrix/dist/gl-matrix.js":60}],159:[function(require,module,exports){
+},{"./rigidBody":203,"aabb-3d":166,"collide-3d-tilemap":168,"extend":169,"gl-vec3":181}],166:[function(require,module,exports){
+module.exports=require(68)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/noa-engine/node_modules/aabb-3d/index.js":68,"gl-matrix":167}],167:[function(require,module,exports){
+module.exports=require(69)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/noa-engine/node_modules/aabb-3d/node_modules/gl-matrix/dist/gl-matrix.js":69}],168:[function(require,module,exports){
 module.exports = function(field, tilesize, dimensions, offset) {
   dimensions = dimensions || [ 
     Math.sqrt(field.length) >> 0
@@ -13578,75 +14209,75 @@ module.exports = function(field, tilesize, dimensions, offset) {
   }  
 }
 
-},{}],160:[function(require,module,exports){
-module.exports=require(71)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/noa-engine/node_modules/extend/index.js":71}],161:[function(require,module,exports){
-module.exports=require(10)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/add.js":10}],162:[function(require,module,exports){
-module.exports=require(11)
-},{"./dot":169,"./fromValues":171,"./normalize":180,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/angle.js":11}],163:[function(require,module,exports){
-module.exports=require(12)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/clone.js":12}],164:[function(require,module,exports){
-module.exports=require(13)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/copy.js":13}],165:[function(require,module,exports){
-module.exports=require(14)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/create.js":14}],166:[function(require,module,exports){
-module.exports=require(15)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/cross.js":15}],167:[function(require,module,exports){
-module.exports=require(16)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/distance.js":16}],168:[function(require,module,exports){
-module.exports=require(17)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/divide.js":17}],169:[function(require,module,exports){
-module.exports=require(18)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/dot.js":18}],170:[function(require,module,exports){
+},{}],169:[function(require,module,exports){
+module.exports=require(80)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/noa-engine/node_modules/extend/index.js":80}],170:[function(require,module,exports){
 module.exports=require(19)
-},{"./create":165,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/forEach.js":19}],171:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/add.js":19}],171:[function(require,module,exports){
 module.exports=require(20)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/fromValues.js":20}],172:[function(require,module,exports){
+},{"./dot":178,"./fromValues":180,"./normalize":189,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/angle.js":20}],172:[function(require,module,exports){
 module.exports=require(21)
-},{"./add":161,"./angle":162,"./clone":163,"./copy":164,"./create":165,"./cross":166,"./distance":167,"./divide":168,"./dot":169,"./forEach":170,"./fromValues":171,"./inverse":173,"./length":174,"./lerp":175,"./max":176,"./min":177,"./multiply":178,"./negate":179,"./normalize":180,"./random":181,"./rotateX":182,"./rotateY":183,"./rotateZ":184,"./scale":185,"./scaleAndAdd":186,"./set":187,"./squaredDistance":188,"./squaredLength":189,"./subtract":190,"./transformMat3":191,"./transformMat4":192,"./transformQuat":193,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/index.js":21}],173:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/clone.js":21}],173:[function(require,module,exports){
 module.exports=require(22)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/inverse.js":22}],174:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/copy.js":22}],174:[function(require,module,exports){
 module.exports=require(23)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/length.js":23}],175:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/create.js":23}],175:[function(require,module,exports){
 module.exports=require(24)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/lerp.js":24}],176:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/cross.js":24}],176:[function(require,module,exports){
 module.exports=require(25)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/max.js":25}],177:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/distance.js":25}],177:[function(require,module,exports){
 module.exports=require(26)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/min.js":26}],178:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/divide.js":26}],178:[function(require,module,exports){
 module.exports=require(27)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/multiply.js":27}],179:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/dot.js":27}],179:[function(require,module,exports){
 module.exports=require(28)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/negate.js":28}],180:[function(require,module,exports){
+},{"./create":174,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/forEach.js":28}],180:[function(require,module,exports){
 module.exports=require(29)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/normalize.js":29}],181:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/fromValues.js":29}],181:[function(require,module,exports){
 module.exports=require(30)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/random.js":30}],182:[function(require,module,exports){
+},{"./add":170,"./angle":171,"./clone":172,"./copy":173,"./create":174,"./cross":175,"./distance":176,"./divide":177,"./dot":178,"./forEach":179,"./fromValues":180,"./inverse":182,"./length":183,"./lerp":184,"./max":185,"./min":186,"./multiply":187,"./negate":188,"./normalize":189,"./random":190,"./rotateX":191,"./rotateY":192,"./rotateZ":193,"./scale":194,"./scaleAndAdd":195,"./set":196,"./squaredDistance":197,"./squaredLength":198,"./subtract":199,"./transformMat3":200,"./transformMat4":201,"./transformQuat":202,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/index.js":30}],182:[function(require,module,exports){
 module.exports=require(31)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateX.js":31}],183:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/inverse.js":31}],183:[function(require,module,exports){
 module.exports=require(32)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateY.js":32}],184:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/length.js":32}],184:[function(require,module,exports){
 module.exports=require(33)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateZ.js":33}],185:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/lerp.js":33}],185:[function(require,module,exports){
 module.exports=require(34)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/scale.js":34}],186:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/max.js":34}],186:[function(require,module,exports){
 module.exports=require(35)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/scaleAndAdd.js":35}],187:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/min.js":35}],187:[function(require,module,exports){
 module.exports=require(36)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/set.js":36}],188:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/multiply.js":36}],188:[function(require,module,exports){
 module.exports=require(37)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/squaredDistance.js":37}],189:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/negate.js":37}],189:[function(require,module,exports){
 module.exports=require(38)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/squaredLength.js":38}],190:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/normalize.js":38}],190:[function(require,module,exports){
 module.exports=require(39)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/subtract.js":39}],191:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/random.js":39}],191:[function(require,module,exports){
 module.exports=require(40)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformMat3.js":40}],192:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateX.js":40}],192:[function(require,module,exports){
 module.exports=require(41)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformMat4.js":41}],193:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateY.js":41}],193:[function(require,module,exports){
 module.exports=require(42)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformQuat.js":42}],194:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateZ.js":42}],194:[function(require,module,exports){
+module.exports=require(43)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/scale.js":43}],195:[function(require,module,exports){
+module.exports=require(44)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/scaleAndAdd.js":44}],196:[function(require,module,exports){
+module.exports=require(45)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/set.js":45}],197:[function(require,module,exports){
+module.exports=require(46)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/squaredDistance.js":46}],198:[function(require,module,exports){
+module.exports=require(47)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/squaredLength.js":47}],199:[function(require,module,exports){
+module.exports=require(48)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/subtract.js":48}],200:[function(require,module,exports){
+module.exports=require(49)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformMat3.js":49}],201:[function(require,module,exports){
+module.exports=require(50)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformMat4.js":50}],202:[function(require,module,exports){
+module.exports=require(51)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformQuat.js":51}],203:[function(require,module,exports){
 
 var aabb = require('aabb-3d')
 ,   vec3 = require('gl-vec3')
@@ -13698,7 +14329,7 @@ RigidBody.prototype.atRestY = function() { return this.resting[1] }
 RigidBody.prototype.atRestZ = function() { return this.resting[2] }
 
 
-},{"aabb-3d":157,"gl-vec3":172}],195:[function(require,module,exports){
+},{"aabb-3d":166,"gl-vec3":181}],204:[function(require,module,exports){
 "use strict"
 
 function traceRay_impl(
@@ -13920,7 +14551,7 @@ function traceRay(voxels, origin, direction, max_d, hit_pos, hit_norm, EPSILON) 
 }
 
 module.exports = traceRay
-},{}],196:[function(require,module,exports){
+},{}],205:[function(require,module,exports){
 /*
  * A fast javascript implementation of simplex noise by Jonas Wagner
  *
@@ -14328,7 +14959,7 @@ if (typeof module !== 'undefined') {
 
 })();
 
-},{}],197:[function(require,module,exports){
+},{}],206:[function(require,module,exports){
 var bundleFn = arguments[3];
 var sources = arguments[4];
 var cache = arguments[5];
@@ -14385,7 +15016,7 @@ module.exports = function (fn) {
     ));
 };
 
-},{}],198:[function(require,module,exports){
+},{}],207:[function(require,module,exports){
 /*!
  * The buffer module from node.js, for the browser.
  *
@@ -15438,7 +16069,7 @@ function decodeUtf8Char (str) {
   }
 }
 
-},{"base64-js":199,"ieee754":200,"is-array":201}],199:[function(require,module,exports){
+},{"base64-js":208,"ieee754":209,"is-array":210}],208:[function(require,module,exports){
 var lookup = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
 ;(function (exports) {
@@ -15560,7 +16191,7 @@ var lookup = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 	exports.fromByteArray = uint8ToBase64
 }(typeof exports === 'undefined' ? (this.base64js = {}) : exports))
 
-},{}],200:[function(require,module,exports){
+},{}],209:[function(require,module,exports){
 exports.read = function(buffer, offset, isLE, mLen, nBytes) {
   var e, m,
       eLen = nBytes * 8 - mLen - 1,
@@ -15646,7 +16277,7 @@ exports.write = function(buffer, value, offset, isLE, mLen, nBytes) {
   buffer[offset + i - d] |= s * 128;
 };
 
-},{}],201:[function(require,module,exports){
+},{}],210:[function(require,module,exports){
 
 /**
  * isArray
@@ -15681,7 +16312,7 @@ module.exports = isArray || function (val) {
   return !! val && '[object Array]' == str.call(val);
 };
 
-},{}],202:[function(require,module,exports){
+},{}],211:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -15984,9 +16615,9 @@ function isUndefined(arg) {
   return arg === void 0;
 }
 
-},{}],203:[function(require,module,exports){
-module.exports=require(118)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/noa-engine/node_modules/inherits/inherits_browser.js":118}],204:[function(require,module,exports){
+},{}],212:[function(require,module,exports){
+module.exports=require(127)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/noa-engine/node_modules/inherits/inherits_browser.js":127}],213:[function(require,module,exports){
 // shim for using process in browser
 
 var process = module.exports = {};
@@ -16074,14 +16705,14 @@ process.chdir = function (dir) {
     throw new Error('process.chdir is not supported');
 };
 
-},{}],205:[function(require,module,exports){
+},{}],214:[function(require,module,exports){
 module.exports = function isBuffer(arg) {
   return arg && typeof arg === 'object'
     && typeof arg.copy === 'function'
     && typeof arg.fill === 'function'
     && typeof arg.readUInt8 === 'function';
 }
-},{}],206:[function(require,module,exports){
+},{}],215:[function(require,module,exports){
 (function (process,global){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -16671,4 +17302,4 @@ function hasOwnProperty(obj, prop) {
 }
 
 }).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./support/isBuffer":205,"_process":204,"inherits":203}]},{},[1]);
+},{"./support/isBuffer":214,"_process":213,"inherits":212}]},{},[1]);
