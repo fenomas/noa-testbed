@@ -1,6 +1,6 @@
 {
   "name": "noa-testbed",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Test world for experimental game engine",
   "main": "index.js",
   "scripts": {
@@ -16,11 +16,12 @@
   ],
   "license": "MIT",
   "dependencies": {
+    "babylon-atlas": "^0.1.0",
     "gl-vec3": "^1.0.3",
     "ndarray": "^1.0.16",
     "ndarray-hash": "0.0.0",
     "ndhash": "^0.1.0",
-    "noa-engine": "andyhall/noa#d3211ec75e564031451a3f7fa2d5e5d6cd6d834d",
+    "noa-engine": "andyhall/noa#b99f0e9fb030e7a3c66ca84e2d8604fa0b4e691f",
     "simplex-noise": "^2.1.1",
     "webworkify": "^1.0.2"
   },

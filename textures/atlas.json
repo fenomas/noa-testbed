@@ -1,0 +1,41 @@
+{
+	"meta": {
+		"image": "atlas.png",
+		"size": {"w":64,"h":64},
+		"scale": "1"
+	},
+	"frames": {
+		"player_jump.png":
+		{
+			"frame": {"x":1,"y":1,"w":28,"h":32},
+			"rotated": false,
+			"trimmed": false,
+			"spriteSourceSize": {"x":0,"y":0,"w":28,"h":32},
+			"sourceSize": {"w":28,"h":32}
+		},
+		"player_stand.png":
+		{
+			"frame": {"x":31,"y":1,"w":28,"h":32},
+			"rotated": false,
+			"trimmed": false,
+			"spriteSourceSize": {"x":0,"y":0,"w":28,"h":32},
+			"sourceSize": {"w":28,"h":32}
+		},
+		"mob_jump.png":
+		{
+			"frame": {"x":1,"y":35,"w":22,"h":21},
+			"rotated": false,
+			"trimmed": false,
+			"spriteSourceSize": {"x":0,"y":0,"w":22,"h":21},
+			"sourceSize": {"w":22,"h":21}
+		},
+		"mob_stand.png":
+		{
+			"frame": {"x":25,"y":35,"w":22,"h":21},
+			"rotated": false,
+			"trimmed": false,
+			"spriteSourceSize": {"x":0,"y":0,"w":22,"h":21},
+			"sourceSize": {"w":22,"h":21}
+		}
+	}
+}
