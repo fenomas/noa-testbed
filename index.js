@@ -81,9 +81,9 @@ game.playerEntity.on('tick',function() {
 var numMobs = 20
 for (var i=0; i<numMobs; ++i) {
   var size = 1+Math.random()*2
-  var x = 50 - 100*Math.random()
+  var x = 40 -  80*Math.random()
   var y =  8 +   8*Math.random()
-  var z = 50 - 100*Math.random()
+  var z = 40 -  80*Math.random()
   createMob( game, atlas, size, size, x, y, z )
 }
 
@@ -105,12 +105,13 @@ game.inputs.down.on('fire', function() {
   if (loc) {
     game.setBlock(0, loc)
     // smoke for removed block
-    addParticles(1, loc, [0.5, 0.5, 0.5], 1, 80, .4, .2, true);
+    var p = addParticles('blocksmoke', loc)
+    p.mesh.position.copyFromFloats( loc[0], loc[1], loc[2] )
   }
 })
 
 // on middle mouse, remember type of targeted block
-var placeBlockID = 2
+var placeBlockID = window.water
 game.inputs.down.on('mid-fire', function() {
   var loc = game.getTargetBlock()
   if (loc) placeBlockID = game.getBlock(loc);
@@ -187,6 +188,53 @@ game.inputs.down.on('conway-ss', function() {
   conway.startStop()
 })
 
+
+
+
+/*
+ *    ;  - Run a profile for 100 ticks
+ *    '  - Run a profile for 100 renders
+*/
+
+game.inputs.bind('profileTick', ';')
+game.inputs.bind('profileRender', "'")
+game.inputs.down.on('profileTick', function() {
+  if (!profiling) startProfile(true)
+})
+game.inputs.down.on('profileRender', function() {
+  if (!profiling) startProfile(false)
+})
+game.on('tick', function(){
+  if (!profileTick) return
+  if (++pct >= 100) { endProfile() }
+})
+game.on('render', function(){
+  if (!profileRender) return
+  if (++pct >= 100) { endProfile() }
+})
+
+var profiling = false
+var profileTick = false, profileRender = false
+var pnum = 0
+var pct = 0
+var t
+function startProfile(isTick) {
+  profiling = true
+  if (isTick) { profileTick = true } else { profileRender = true }
+  pnum++
+  pct = 0
+  var s = (profileTick) ? '100 ticks - ' : '100 renders - '
+  console.profile(s+pnum)
+  t = performance.now()
+}
+function endProfile() {
+  var s = (profileTick) ? '100 ticks - ' : '100 renders - '
+  console.profileEnd(s+pnum)
+  profiling = false
+  profileTick = false
+  profileRender = false
+  console.log('end', pct, 'time: ', (performance.now()-t).toFixed(2))
+}
 
 
 
