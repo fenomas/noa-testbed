@@ -111,7 +111,7 @@ game.inputs.down.on('fire', function() {
 })
 
 // on middle mouse, remember type of targeted block
-var placeBlockID = window.water
+var placeBlockID = 1
 game.inputs.down.on('mid-fire', function() {
   var loc = game.getTargetBlock()
   if (loc) placeBlockID = game.getBlock(loc);
