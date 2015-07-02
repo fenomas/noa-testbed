@@ -1,1 +1,1 @@
-curl https://raw.githubusercontent.com/BabylonJS/Babylon.js/master/babylon.2.1-rc.debug.js > lib/babylon.js
+curl https://raw.githubusercontent.com/BabylonJS/Babylon.js/master/dist/preview%20release%20-%20alpha/babylon.2.2.max.js > lib/babylon.js
