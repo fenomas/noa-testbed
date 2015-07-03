@@ -105,8 +105,8 @@ game.inputs.down.on('fire', function() {
   if (loc) {
     game.setBlock(0, loc)
     // smoke for removed block
-    var p = addParticles('blocksmoke', loc)
-    p.mesh.position.copyFromFloats( loc[0], loc[1], loc[2] )
+    var parts = addParticles('blocksmoke')
+    parts.mesh.position.copyFromFloats( loc[0]+0.5, loc[1]+0.5, loc[2]+0.5 )
   }
 })
 
