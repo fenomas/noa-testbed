@@ -64,16 +64,17 @@ var jump_frame = 'player_jump.png'
 pmesh.scaling = new BABYLON.Vector3(vw, ph, 1)
 game.setPlayerMesh(pmesh, [pw/2, ph/2, pw/2], true )
 
-// simplest animation evar
+// set player animation frame..
 var facing = 1
-game.playerEntity.on('tick',function() {
-  var onground = this.body.resting[1] < 0
+game.on('tick',function() {
+  var body = game.entities.getPhysicsBody(game.playerEntity)
+  var onground = body.resting[1] < 0
   var fr = (onground) ? stand_frame : jump_frame
   atlas.setMeshFrame(pmesh, fr)
   
   if (game.inputs.state.left) facing = -1
   if (game.inputs.state.right) facing = 1
-  game.playerEntity.mesh.scaling.x = vw * facing
+  pmesh.scaling.x = vw * facing
 })
 
 
