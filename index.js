@@ -1,3 +1,6 @@
+'use strict';
+/* global BABYLON */
+
 var vec3 = require('gl-vec3')
 var noa = require('noa-engine')
 var Atlas = require('babylon-atlas')
@@ -15,7 +18,7 @@ var opts = {
   pointerLock: true,
   inverseY: true,
   // world data
-  chunkSize: 32,
+  chunkSize: 20,
   chunkAddDistance: 2,
   chunkRemoveDistance: 3,
   // rendering
@@ -79,11 +82,12 @@ game.playerEntity.on('tick',function() {
 */
 
 var numMobs = 20
+var range = 20
 for (var i=0; i<numMobs; ++i) {
   var size = 1+Math.random()*2
-  var x = 40 -  80*Math.random()
-  var y =  8 +   8*Math.random()
-  var z = 40 -  80*Math.random()
+  var x = range - 2*range*Math.random()
+  var y = 8 + 8*Math.random()
+  var z = range - 2*range*Math.random()
   createMob( game, atlas, size, size, x, y, z )
 }
 
@@ -192,8 +196,8 @@ game.inputs.down.on('conway-ss', function() {
 
 
 /*
- *    ;  - Run a profile for 100 ticks
- *    '  - Run a profile for 100 renders
+ *    ;  - Run a profile for 200 ticks
+ *    '  - Run a profile for 200 renders
 */
 
 game.inputs.bind('profileTick', ';')
@@ -206,11 +210,11 @@ game.inputs.down.on('profileRender', function() {
 })
 game.on('tick', function(){
   if (!profileTick) return
-  if (++pct >= 100) { endProfile() }
+  if (++pct >= 200) { endProfile() }
 })
-game.on('render', function(){
+game.on('afterRender', function(){
   if (!profileRender) return
-  if (++pct >= 100) { endProfile() }
+  if (++pct >= 200) { endProfile() }
 })
 
 var profiling = false
@@ -223,12 +227,12 @@ function startProfile(isTick) {
   if (isTick) { profileTick = true } else { profileRender = true }
   pnum++
   pct = 0
-  var s = (profileTick) ? '100 ticks - ' : '100 renders - '
+  var s = (profileTick) ? '200 ticks - ' : '200 renders - '
   console.profile(s+pnum)
   t = performance.now()
 }
 function endProfile() {
-  var s = (profileTick) ? '100 ticks - ' : '100 renders - '
+  var s = (profileTick) ? '200 ticks - ' : '200 renders - '
   console.profileEnd(s+pnum)
   profiling = false
   profileTick = false
