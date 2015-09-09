@@ -19,7 +19,7 @@ var opts = {
   pointerLock: true,
   inverseY: true,
   // world data
-  chunkSize: 20,
+  chunkSize: 32,
   chunkAddDistance: 2,
   chunkRemoveDistance: 3,
   // rendering
@@ -63,7 +63,13 @@ var stand_frame = 'player_stand.png'
 var jump_frame = 'player_jump.png'
 
 pmesh.scaling = new BABYLON.Vector3(vw, ph, 1)
-game.setPlayerMesh(pmesh, [pw/2, ph/2, pw/2], true )
+
+// set the player mesh, and set it to be a sprite
+game.entities.addComponent(game.playerEntity, game.entities.components.mesh, {
+  mesh: pmesh,
+  offset: [pw/2, ph/2, pw/2]
+})
+game.entities.addComponent(game.playerEntity, game.entities.components.sprite)
 
 // set player animation frame..
 var facing = 1
@@ -132,7 +138,7 @@ game.inputs.down.on('alt-fire', function() {
 // bind "i" key to invert mouse
 game.inputs.bind('invertY', 'I')
 game.inputs.down.on('invertY', function() {
-  game.controls.inverseY = !game.controls.inverseY
+  game.cameraControls.inverseY = !game.cameraControls.inverseY
 })
 
 
@@ -245,7 +251,7 @@ function endProfile() {
 
 
 
-},{"./lib/conway":2,"./lib/hover":3,"./lib/mob":4,"./lib/particles":5,"./lib/projectile":6,"./lib/ui":7,"./lib/worldgen":8,"babylon-atlas":10,"gl-vec3":30,"noa-engine":59}],2:[function(require,module,exports){
+},{"./lib/conway":2,"./lib/hover":3,"./lib/mob":4,"./lib/particles":5,"./lib/projectile":6,"./lib/ui":7,"./lib/worldgen":8,"babylon-atlas":10,"gl-vec3":30,"noa-engine":73}],2:[function(require,module,exports){
 'use strict';
 
 
@@ -456,7 +462,7 @@ module.exports = function(game, particleAdder) {
 function Hover(game, particleAdder) {
   var hovering = false
   var parts = particleAdder('jetpack')
-  parts.parent = game.playerMesh
+  parts.parent = game.getPlayerMesh()
 
   game.inputs.bind('hover', 'R')
   game.inputs.down.on('hover', function() {
@@ -804,7 +810,7 @@ function makeProjectileLauncher(game, particleAdder) {
     var eid = game.entities.add( pos, s, s, mesh, [s/2,s/2,s/2], true, 
                               true, null, 
                               false, null, 
-                              false, false )
+                              true, false )
     // adjust physics properties thusly
     var body = game.entities.getPhysicsBody(eid)
     body.gravityMultiplier = gravMult
@@ -814,7 +820,7 @@ function makeProjectileLauncher(game, particleAdder) {
     // timer for bomb
     if (spelltype===2) {
       game.entities.addComponent(eid, game.entities.components.countdown, {
-        delay: 3000,
+        time: 3000,
         callback: function() {
           var pos = game.entities.getPosition(eid)
           addBlocksInSphere(game, 0, pos, 2.75)
@@ -886,14 +892,16 @@ function launchAlongCameraVector(game, entID, impulse) {
 }
 
 function addBlocksInSphere(game, id, pos, radius) {
-  // var scene = game.rendering.getScene()
-  var loc = pos.map(Math.floor)
   var rad = Math.ceil(radius)
   for (var i=-rad; i<=rad; ++i) {
     for (var j=-rad; j<=rad; ++j) {
       for (var k=-rad; k<=rad; ++k) {
         if (i*i + j*j + k*k <= radius*radius) {
-          game.addBlock( id, i+loc[0], j+loc[1], k+loc[2] )
+          game.addBlock( id, 
+            i + Math.floor(pos[0]), 
+            j + Math.floor(pos[1]), 
+            k + Math.floor(pos[2])
+          )
         }
       }
     }
@@ -1081,7 +1089,7 @@ function getBlockIDObject() {
 
 
 
-},{"./worldgen_worker":9,"ndarray":56,"ndhash":58,"simplex-noise":208,"webworkify":209}],9:[function(require,module,exports){
+},{"./worldgen_worker":9,"ndarray":56,"ndhash":58,"simplex-noise":187,"webworkify":188}],9:[function(require,module,exports){
 'use strict';
 
 var SimplexNoise = require('simplex-noise')
@@ -1283,7 +1291,7 @@ module.exports = function (self) {
 
 
 
-},{"ndarray":56,"ndhash":58,"simplex-noise":208}],10:[function(require,module,exports){
+},{"ndarray":56,"ndhash":58,"simplex-noise":187}],10:[function(require,module,exports){
 /* global BABYLON */
 
 module.exports = Atlas
@@ -3340,7 +3348,7 @@ function wrappedNDArrayCtor(data, shape, stride, offset) {
 
 module.exports = wrappedNDArrayCtor
 }).call(this,require("buffer").Buffer)
-},{"buffer":210,"iota-array":55}],55:[function(require,module,exports){
+},{"buffer":189,"iota-array":55}],55:[function(require,module,exports){
 "use strict"
 
 function iota(n) {
@@ -3354,7 +3362,7 @@ function iota(n) {
 module.exports = iota
 },{}],56:[function(require,module,exports){
 module.exports=require(54)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/ndarray-hash/node_modules/ndarray/ndarray.js":54,"buffer":210,"iota-array":57}],57:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/ndarray-hash/node_modules/ndarray/ndarray.js":54,"buffer":189,"iota-array":57}],57:[function(require,module,exports){
 module.exports=require(55)
 },{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/ndarray-hash/node_modules/ndarray/node_modules/iota-array/iota.js":55}],58:[function(require,module,exports){
 
@@ -3393,6 +3401,689 @@ module.exports = hash
 
 
 },{}],59:[function(require,module,exports){
+'use strict';
+
+
+module.exports = function (noa) {
+	return {
+
+		name: 'bounding-box',
+
+		state: {
+			aabb: null
+		},
+
+		onAdd: null,
+
+		onRemove: null,
+
+		processor: null
+
+
+	}
+}
+
+
+},{}],60:[function(require,module,exports){
+'use strict';
+
+
+module.exports = function () {
+	return {
+		
+		name: 'autostepping',
+
+		state: {
+			time: 100.1
+		},
+
+		onAdd: null,
+
+		onRemove: null,
+
+		processor: null
+
+
+	}
+}
+
+
+},{}],61:[function(require,module,exports){
+'use strict';
+
+var boxIntersect = require('box-intersect')
+
+var intervals = [],
+	ids = [],
+	idToi = []
+
+module.exports = function (noa) {
+	return {
+
+		name: 'collide-entities',
+
+		state: {
+			callback: null
+		},
+
+		onAdd: function (eid, state) {
+			// add collide handler for physics engine to call
+			var ents = noa.entities
+			if (ents.hasComponent(eid, ents.components.physics)) {
+				var body = ents.getPhysicsBody(eid)
+				body.onCollide = function (impulse) {
+					var cb = ents.getData(eid, 'collide-terrain').callback
+					if (cb) cb(impulse, eid)
+				}
+			}
+		},
+
+		onRemove: function (eid, state) {
+			var ents = noa.entities
+			if (ents.hasComponent(eid, ents.components.physics)) {
+				ents.getPhysicsBody(eid).onCollide = null
+			}
+		},
+
+
+		processor: function entityCollider(dt, states) {
+			// populate data struct that boxIntersect looks for
+			populateIntervals(intervals, ids, idToi, states, noa.entities)
+			// find collisions and call callbacks
+			var collideEnt = noa.entities.components.collideEntities
+			boxIntersect(intervals, function (i, j) {
+				var iid = ids[i]
+				var jid = ids[j]
+				// var ihandler = states[idToi[iid]].callback
+				var ihandler = noa.entities.getData(iid, collideEnt).callback
+				if (ihandler) ihandler(iid, jid)
+				// var jhandler = states[idToi[jid]].callback
+				var jhandler = noa.entities.getData(jid, collideEnt).callback
+				if (jhandler) jhandler(jid, iid)
+				// if (iid==0 || jid==0) throw new Error()
+			})
+		}
+
+
+
+	}
+}
+
+
+// implementation:
+
+function populateIntervals(intervals, ids, idToi, states, entitites) {
+	// grow/shrink [lo, lo, hi, hi] array entries
+	// optimized to common case where states.length is the same as last time
+	while (intervals.length < states.length) {
+		intervals.push(new Float32Array(6))
+	}
+	intervals.length = states.length
+	ids.length = states.length
+	idToi.length = states.length
+	// populate [lo, lo, lo, hi, hi, hi] arrays
+	for (var i = 0; i < states.length; i++) {
+		var id = states[i].__id
+		var box = entitites.getAABB(id)
+		var lo = box.base
+		var hi = box.max
+		var arr = intervals[i]
+		for (var j = 0; j < 3; j++) {
+			arr[j] = lo[j]
+			arr[j + 3] = hi[j]
+		}
+		ids[i] = id
+		idToi[id] = i
+	}
+}
+
+
+
+
+},{"box-intersect":85}],62:[function(require,module,exports){
+'use strict';
+
+
+module.exports = function (noa) {
+	return {
+
+		name: 'collide-terrain',
+
+		state: {
+			callback: null
+		},
+
+		onAdd: function(eid, state) {
+			// add collide handler for physics engine to call
+			var ents = noa.entities
+			if (ents.hasComponent(eid, ents.components.physics)) {
+				var body = ents.getPhysicsBody(eid)
+				body.onCollide = function bodyOnCollide(impulse) {
+					var cb = ents.getData(eid, 'collide-terrain').callback
+					if (cb) cb(impulse, eid)
+				}
+			}
+		},
+
+		onRemove: function(eid, state) {
+			var ents = noa.entities
+			if (ents.hasComponent(eid, ents.components.physics)) {
+				ents.getPhysicsBody(eid).onCollide = null
+			}
+		},
+		
+
+		processor: null
+
+
+	}
+}
+
+
+},{}],63:[function(require,module,exports){
+'use strict';
+
+
+module.exports = function (noa) {
+	return {
+		
+		name: 'countdown',
+
+		state: {
+			callback:	null,
+			time:		500.1  // ms
+		},
+
+		onAdd: null,
+
+		onRemove: function (entID, state) {
+			state.callback()
+		},
+
+		processor: function countdownProcessor(dt, states) {
+			for (var i=0; i<states.length; i++) {
+				var state = states[i]
+				state.time -= dt
+				if (state.time < 0) {
+					noa.entities.removeComponent(state.__id, 'countdown')
+				}
+			}
+		}
+
+
+	}
+}
+
+
+},{}],64:[function(require,module,exports){
+'use strict';
+
+/**
+ * Component for the player entity, when active hides the player's mesh 
+ * when camera zoom is less than a certain amount
+ */
+
+module.exports = function (noa) {
+	return {
+
+		name: 'fade-on-zoom',
+
+		state: {
+			cutoff: 2.999,
+			_showing: true
+		},
+
+		onAdd: null,
+
+		onRemove: null,
+
+		processor: function fadeOnZoomProc(dt, states) {
+			var zoom = noa.rendering._currentZoom
+			var ents = noa.entities
+			for (var i = 0; i < states.length; i++) {
+				var state = states[i]
+				checkZoom(state, state.__id, zoom, ents)
+			}
+		}
+	}
+}
+
+
+function checkZoom(state, id, zoom, ents) {
+	if (!ents.hasComponent(id, ents.components.mesh)) return
+
+	if (state._showing && zoom < state.cutoff || !state._showing && zoom > state.cutoff) {
+		var mesh = ents.getMeshData(id).mesh
+		mesh.visibility = state._showing = (zoom > state.cutoff)
+	}
+}
+
+
+
+},{}],65:[function(require,module,exports){
+'use strict';
+
+/**
+ * Simple flag to indicate that an entity follows the player position
+ * (used for camera position tracking)
+ */
+
+module.exports = function (noa) {
+	
+	return {
+
+		name: 'follows-player',
+
+		state: { },
+
+		onAdd: null,
+
+		onRemove: null,
+
+		processor: null
+
+
+	}
+}
+
+
+},{}],66:[function(require,module,exports){
+'use strict';
+
+
+module.exports = function (noa) {
+	return {
+		
+		name: 'has-mesh',
+
+		state: {
+			mesh: null, 
+			offset: null 
+		},
+
+
+		onAdd: function (eid, state) {
+			noa.rendering.addDynamicMesh(state.mesh)
+		},
+
+
+		onRemove: function(eid, state) {
+			state.mesh.dispose()
+		},
+
+
+		processor: null
+
+
+	}
+}
+
+
+
+},{}],67:[function(require,module,exports){
+'use strict';
+
+var vec3 = require('gl-vec3')
+
+/**
+ * 
+ * Movement component. State stores settings like jump height, etc.,
+ * as well as current state (running, jumping, heading angle).
+ * Processor checks state and applies movement/friction/jump forces
+ * to the entity's physics body. 
+ * 
+ */
+
+module.exports = function (noa) {
+	return {
+
+		name: 'movement',
+
+		state: {
+			// current state
+			heading: 0, 			// radians
+			running: false,
+			jumping: false,
+			
+			// options:
+			maxSpeed: 10,
+			moveForce: 30,
+			responsiveness: 15,
+			runningFriction: 0,
+			standingFriction: 50,
+
+			airMoveMult: 0.5,
+			jumpImpulse: 10,
+			jumpForce: 12,
+			jumpTime: 500, 			// ms
+			airJumps: 1,
+			
+			// internal state
+			_jumpCount: 0,
+			_isJumping: 0,
+			_currjumptime: 0,
+		},
+
+		onAdd: null,
+
+		onRemove: null,
+
+
+		processor: function movementProcessor(dt, states) {
+			var ents = noa.entities
+
+			for (var i = 0; i < states.length; i++) {
+				var state = states[i]
+				var body = ents.getPhysicsBody(state.__id)
+				applyMovementPhysics(dt, state, body)
+			}
+
+		}
+
+
+	}
+}
+
+
+var tempvec = vec3.create()
+var tempvec2 = vec3.create()
+var zeroVec = vec3.create()
+
+
+function applyMovementPhysics (dt, state, body) {
+	// move implementation originally written as external module
+	//   see https://github.com/andyhall/voxel-fps-controller
+	//   for original code
+
+	// jumping
+	var onGround = (body.atRestY() < 0)
+	var canjump = (onGround || state._jumpCount < state.airJumps)
+	if (onGround) {
+		state._isJumping = false
+		state._jumpCount = 0
+	}
+	
+	// process jump input
+	if (state.jumping) {
+		if (state._isJumping) { // continue previous jump
+			if (state._currjumptime > 0) {
+				var jf = state.jumpForce
+				if (state._currjumptime < dt) jf *= state._currjumptime / dt
+				body.applyForce([0, jf, 0])
+				state._currjumptime -= dt
+			}
+		} else if (canjump) { // start new jump
+			state._isJumping = true
+			if (!onGround) state._jumpCount++
+			state._currjumptime = state.jumpTime
+			body.applyImpulse([0, state.jumpImpulse, 0])
+			// clear downward velocity on airjump
+			if (!onGround && body.velocity[1] < 0) body.velocity[1] = 0
+		}
+	} else {
+		state._isJumping = false
+	}
+	
+	// apply movement forces if entity is moving, otherwise just friction
+	var m = tempvec
+	var push = tempvec2
+	if (state.running) {
+		
+		var speed = state.maxSpeed
+		// todo: add crouch/sprint modifiers if needed
+		// if (state.sprint) speed *= state.sprintMoveMult
+		// if (state.crouch) speed *= state.crouchMoveMult
+		vec3.set(m, 0, 0, speed)
+		
+		// rotate move vector to entity's heading
+		vec3.rotateY(m, m, zeroVec, state.heading)
+
+		// push vector to achieve desired speed & dir
+		// following code to adjust 2D velocity to desired amount is patterned on Quake: 
+		// https://github.com/id-Software/Quake-III-Arena/blob/master/code/game/bg_pmove.c#L275
+		vec3.subtract(push, m, body.velocity)
+		push[1] = 0
+		var pushLen = vec3.length(push)
+		vec3.normalize(push, push)
+
+		if (pushLen > 0) {
+			// pushing force vector
+			var canPush = state.moveForce
+			if (!onGround) canPush *= state.airMoveMult
+
+			// apply final force
+			var pushAmt = state.responsiveness * pushLen
+			if (canPush > pushAmt) canPush = pushAmt
+
+			vec3.scale(push, push, canPush)
+			body.applyForce(push)
+		}
+		
+		// different friction when not moving
+		// idea from Sonic: http://info.sonicretro.org/SPG:Running
+		body.friction = state.runningFriction
+	} else {
+		body.friction = state.standingFriction
+	}
+	
+	
+	
+}
+
+
+
+
+},{"gl-vec3":122}],68:[function(require,module,exports){
+'use strict';
+
+
+module.exports = function (noa) {
+	return {
+		
+		name: 'physics-body',
+
+
+		state: {
+			body: null
+		},
+
+
+		onAdd: function (entID, state) {
+			state.body = noa.physics.addBody()
+		},
+
+
+		onRemove: function (entID, state) {
+			noa.physics.removeBody( state.body )
+		},
+
+
+		processor: null
+
+
+	}
+}
+
+
+},{}],69:[function(require,module,exports){
+'use strict';
+
+
+module.exports = function () {
+	return {
+		
+		name: 'is-player',
+
+		state: {},
+
+		onAdd: null,
+
+		onRemove: null,
+
+		processor: null
+
+
+	}
+}
+
+
+},{}],70:[function(require,module,exports){
+'use strict';
+
+/**
+ * 
+ * Input processing component - gets (key) input state and  
+ * applies it to receiving entities by updating their movement 
+ * component state (heading, movespeed, jumping, etc.)
+ * 
+ */
+
+module.exports = function (noa) {
+	return {
+
+		name: 'receives-inputs',
+
+		state: {},
+
+		onAdd: null,
+
+		onRemove: null,
+
+		processor: function inputProcessor(dt, states) {
+			var ents = noa.entities
+			var moveComp = ents.components.movement
+			var inputState = noa.inputs.state
+			var camHeading = noa.rendering.getCameraRotation()[1]
+
+			for (var i = 0; i < states.length; i++) {
+				var moveState = ents.getData(states[i].__id, moveComp)
+				setMovementState(moveState, inputState, camHeading)
+			}
+		}
+
+	}
+}
+
+
+
+function setMovementState(state, inputs, camHeading) {
+	state.jumping = !!inputs.jump
+
+	var fb = inputs.forward ? (inputs.backward ? 0 : 1) : (inputs.backward ? -1 : 0)
+	var rl = inputs.right ? (inputs.left ? 0 : 1) : (inputs.left ? -1 : 0)
+
+	if ((fb | rl) === 0) {
+		state.running = false
+	} else {
+		state.running = true
+		if (fb) {
+			if (fb == -1) camHeading += Math.PI
+			if (rl) {
+				camHeading += Math.PI / 4 * fb * rl // didn't plan this but it works!
+			}
+		} else {
+			camHeading += rl * Math.PI / 2
+		}
+		state.heading = camHeading
+	}
+	
+}
+
+
+
+
+},{}],71:[function(require,module,exports){
+'use strict';
+
+
+module.exports = function (noa) {
+	return {
+		
+		name: 'has-shadow',
+
+		state: {
+			mesh:	null,
+			size:	0.5
+		},
+
+
+		onAdd: function (eid, state) {
+			state.mesh = noa.rendering.makeMeshInstance('shadow', false)
+		},
+
+
+		onRemove: function(eid, state) {
+			state.mesh.dispose()
+		},
+
+
+		processor: function shadowProcessor(dt, states) {
+			for (var i=0; i<states.length; i++) {
+				var state = states[i]
+				var shadowDist = noa.entities.shadowDist
+				updateShadowHeight(state.__id, state.mesh, state.size, shadowDist, noa)
+			}
+		}
+
+
+	}
+}
+
+var down = new Float32Array([0, -1, 0])
+
+function updateShadowHeight(id, mesh, size, shadowDist, noa) {
+	var loc = noa.entities.getPosition(id)
+	var pick = noa.pick(loc, down, shadowDist)
+	if (pick) {
+		var y = pick.position[1]
+		mesh.position.y = y + 0.05
+		var dist = loc[1] - y
+		var scale = size * 0.7 * (1-dist/shadowDist)
+		mesh.scaling.copyFromFloats(scale, scale, scale)
+		mesh.setEnabled(true)
+	} else {
+		mesh.setEnabled(false)
+	}
+}
+
+
+
+},{}],72:[function(require,module,exports){
+'use strict';
+
+
+module.exports = function (noa) {
+	return {
+		
+		name: 'is-sprite',
+
+		state: {},
+
+		onAdd: function(eid, state) {
+			// turn on mesh's billboard.Y
+			var meshData = noa.entities.getData(eid, noa.entities.components.mesh)
+			noa.rendering.setUpSpriteMesh(meshData.mesh)
+		},
+
+		onRemove: null,
+
+		processor: function spriteProcessor (dt, states) {
+			var ents = noa.entities
+			for (var i=0; i<states.length; i++) {
+				var id = states[i].__id
+				var box = ents.getAABB(id)
+				var mesh = ents.getMeshData(id).mesh
+				// adjust height of sprite-based meshes to face camera
+				noa.rendering.adjustSpriteMeshHeight(box, mesh)
+			}
+		}
+
+
+	}
+}
+
+
+},{}],73:[function(require,module,exports){
 
 var aabb = require('aabb-3d')
 var vec3 = require('gl-vec3')
@@ -3405,7 +4096,7 @@ var createRendering = require('./lib/rendering')
 var createWorld = require('./lib/world')
 var createInputs = require('./lib/inputs')
 var createPhysics = require('./lib/physics')
-var createControls = require('./lib/controls')
+var createCamControls = require('./lib/camera')
 var createRegistry = require('./lib/registry')
 var createEntities = require('./lib/entities')
 var raycast = require('voxel-raycast')
@@ -3454,57 +4145,82 @@ function Engine(opts) {
   // physics engine - solves collisions, properties, etc.
   this.physics = createPhysics( this, opts )
 
-  // controls - hooks up input events to physics of player, etc.
-  this.controls = createControls( this, opts )
-  // accessor to let controls read/write camera rotation
-  this.controls.setCameraAccessor({
-    renderingRef: this.rendering,
-    getRotationXY: function() {
-      return this.renderingRef.getCameraRotation()
-    },
-    setRotationXY: function(x,y) {
-      this.renderingRef.setCameraRotation(x,y)
-    }
-  })
-
+  // camera controller
+  this.cameraControls = createCamControls( this, opts )
+  
   // entity manager
   this.entities = createEntities( this, opts )
-
+  var ents = this.entities
 
   // keep reference to the player's mesh for convenience
   // use placeholder to start with (to be overwritten by client)
-  this.playerMesh = this.rendering.makePlaceholderMesh()
+  // this.playerMesh = this.rendering.makePlaceholderMesh()
   
   // create an entity for the player and hook up controller to its physics body
-  this.playerEntity = this.entities.add(
+  this.playerEntity = ents.add(
     opts.playerStart,    // starting location- TODO: get from options
     opts.playerWidth, opts.playerHeight,
-    this.playerMesh, null, // box mesh, no meshOffset, 
+    null, null, // box mesh, no meshOffset, 
     true,                  // do physics
     true, null,            // collideTerrain, onCollide
     true, null,            // collideEntities, onCollide
     true, false            // shadow, isSprite
   )
-  
-  var body = this.entities.getPhysicsBody(this.playerEntity)
+    
+  var body = ents.getPhysicsBody(this.playerEntity)
   body.gravityMultiplier = 2 // less floaty
   body.autoStep = opts.playerAutoStep // auto step onto blocks
-  
-  this.controls.setTarget( body )
+  this.playerBody = body
   
   // tag the entity as the player
-  this.entities.addComponent(this.playerEntity, this.entities.components.player)
+  ents.addComponent(this.playerEntity, ents.components.player)
+  
+  // input component - sets entity's movement state from key inputs
+  ents.addComponent(this.playerEntity, ents.components.receivesInputs)
+  
+  // add a component to make player mesh fade out when zooming in
+  ents.addComponent(this.playerEntity, ents.components.fadeOnZoom)
+  
+  // movement component - applies movement forces
+  // todo: populate movement settings from options
+  var moveOpts = {
+    airJumps: 1
+  }
+  ents.addComponent(this.playerEntity, ents.components.movement, moveOpts)
+  
+  
+  // entity to track camera target position
+  this.cameraTarget = ents.createEntity([
+    ents.components.followsPlayer
+    // , ents.components.aabb
+  ])
+  ents.addComponent(this.cameraTarget, ents.components.aabb, {
+    aabb: new aabb([0,0,0], [0,0,0])
+  })
+
+
 
   // Set up block picking functions
   this.blockTestDistance = opts.blockTestDistance || 10
 
-  this._traceWorldRay = raycast.bind(null, {
-    getBlock: this.world.getBlockID.bind(this.world)
-  })
-
-  this._traceWorldRayCollision = raycast.bind(null, {
-    getBlock: this.world.getBlockSolidity.bind(this.world)
-  })
+  // plumbing for picking/raycasting
+  var world = this.world
+  var blockGetter = { getBlock:function(x,y,z) {
+    return world.getBlock(x,y,z)
+  }}
+  var solidGetter = { getBlock:function(x,y,z) {
+    return world.getBlockSolidity(x,y,z)
+  }}
+  
+  // accessors
+  this._traceWorldRay = function(pos, vec, dist, hitPos, hitNorm) {
+    return raycast(blockGetter, pos, vec, dist, hitPos, hitNorm)
+  }
+  
+  this._traceWorldRayCollision = function(pos, vec, dist, hitPos, hitNorm) {
+    return raycast(solidGetter, pos, vec, dist, hitPos, hitNorm)
+  }
+  
 
 
 
@@ -3532,17 +4248,24 @@ inherits( Engine, EventEmitter )
 */ 
 
 
+
+
+/**
+ * Tick function, called by container module at a fixed timestep. Emits #tick(dt),
+ * where dt is the tick rate in ms (default 16.6)
+ */
+
 Engine.prototype.tick = function() {
   if (this._paused) return
-  var dt = this._tickRate    // fixed timesteps!
-  this.world.tick(dt)        // chunk creation/removal
-  this.controls.tickZoom(dt) // ticks camera zoom based on scroll events
-  this.rendering.tick(dt)    // zooms camera, does deferred chunk meshing
-  this.controls.tickPhysics(dt)  // applies movement forces
+  var dt = this._tickRate         // fixed timesteps!
+  this.world.tick(dt)             // chunk creation/removal
+  this.cameraControls.tickCamera(dt) // ticks camera zoom based on scroll events
+  this.rendering.tick(dt)         // zooms camera, does deferred chunk meshing
 // t0()
-  this.physics.tick(dt)      // iterates physics
+  this.physics.tick(dt)           // iterates physics
 // t1('physics tick')
-  this.setBlockTargets()     // finds targeted blocks, and highlights one if needed
+  this.entities.update(dt)        // tells ECS to run all processors
+  this.setBlockTargets()          // finds targeted blocks, and highlights one if needed
   this.emit('tick', dt)
 }
 
@@ -3563,6 +4286,12 @@ function t1(s) {
 }
 
 
+
+/**
+ * Render function, called every animation frame. Emits #beforeRender(dt), #afterRender(dt) 
+ * where dt is the time in ms *since the last tick*.
+ */
+
 Engine.prototype.render = function(framePart) {
   if (this._paused) return
   var dt = framePart*this._tickRate // ms since last tick
@@ -3570,10 +4299,9 @@ Engine.prototype.render = function(framePart) {
   if (this.container.hasPointerLock() || 
       !this.container.supportsPointerLock() || 
       this.inputs.state.fire) {
-    this.controls.tickCamera()
+    this.cameraControls.updateForRender()
   }
   // clear cumulative mouse inputs
-  // TODO: do this, or give inputs tickMouse/tickScroll methods?
   this.inputs.state.dx = this.inputs.state.dy = 0
   // events and render
   this.emit('beforeRender', dt)
@@ -3625,6 +4353,10 @@ Engine.prototype.getTargetBlockAdjacent = function() {
 
 Engine.prototype.getPlayerPosition = function() {
   return this.entities.getPosition(this.playerEntity)
+}
+
+Engine.prototype.getPlayerMesh = function() {
+  return this.entities.getMeshData(this.playerEntity).mesh
 }
 
 Engine.prototype.getPlayerEyePosition = function() {
@@ -3708,7 +4440,102 @@ Engine.prototype.setPlayerMesh = function(mesh, meshOffset, isSprite) {
 
 
 
-},{"./lib/container":61,"./lib/controls":62,"./lib/entities":63,"./lib/inputs":64,"./lib/physics":65,"./lib/registry":66,"./lib/rendering":67,"./lib/world":68,"aabb-3d":69,"events":214,"extend":83,"gl-vec3":108,"inherits":130,"ndarray":131,"voxel-raycast":207}],60:[function(require,module,exports){
+},{"./lib/camera":74,"./lib/container":76,"./lib/entities":77,"./lib/inputs":78,"./lib/physics":79,"./lib/registry":80,"./lib/rendering":81,"./lib/world":82,"aabb-3d":83,"events":193,"extend":97,"gl-vec3":122,"inherits":144,"ndarray":145,"voxel-raycast":186}],74:[function(require,module,exports){
+'use strict';
+
+var extend = require('extend')
+
+module.exports = function (noa, opts) {
+	return new CameraController(noa, opts)
+}
+
+
+
+/*
+*    Controller for the camera
+*
+*/
+
+
+var defaults = {
+	rotationScale: 0.0025,
+	inverseY: false,
+	
+	// zoom stuff
+	minCameraZoom: 0,
+	maxCameraZoom: 10,
+	cameraZoomStep: 1.5,
+}
+
+
+function CameraController(noa, opts) {
+	this.noa = noa
+	
+	// options
+	opts = extend({}, defaults, opts)
+	this.rotationScale = opts.rotationScale
+	this.inverseY = opts.inverseY
+	this.zoomMin = opts.minCameraZoom
+	this.zoomMax = opts.maxCameraZoom
+	this.zoomStep = opts.cameraZoomStep
+}
+
+
+
+
+/**
+ * On tick, consume scroll inputs and set (target) camera zoom level
+ */
+
+CameraController.prototype.tickCamera = function(dt) {
+	// process any (cumulative) scroll inputs and then clear
+	var scroll = this.noa.inputs.state.scrolly
+	if (scroll === 0) return
+	this.noa.inputs.state.scrolly = 0
+
+	// handle zoom controls
+	var z = this.noa.rendering.zoomDistance
+	z += (scroll > 0) ? this.zoomStep : -this.zoomStep
+	if (z < this.zoomMin) z = this.zoomMin
+	if (z > this.zoomMax) z = this.zoomMax
+	this.noa.rendering.zoomDistance = z
+}
+
+
+
+
+
+/**
+ * On render, move/rotate the camera based on target and mouse inputs
+ */
+
+CameraController.prototype.updateForRender = function () {
+	// input state
+	var state = this.noa.inputs.state
+
+	// Rotation: translate dx/dy inputs into y/x axis camera angle changes
+	var dx = this.rotationScale * state.dy * ((this.inverseY) ? -1 : 1)
+	var dy = this.rotationScale * state.dx
+	
+	// normalize/clamp/update
+	var camrot = this.noa.rendering.getCameraRotation() // [x,y]
+	var rotX = clamp(camrot[0] + dx, rotXcutoff)
+	var rotY = (camrot[1] + dy) % (Math.PI*2)
+	this.noa.rendering.setCameraRotation(rotX, rotY)
+	
+}
+
+var rotXcutoff = (Math.PI/2) - .0001 // engines can be weird when xRot == pi/2
+
+function clamp(value, to) {
+	return isFinite(to) ? Math.max(Math.min(value, to), -to) : value
+}
+
+
+
+
+
+},{"extend":97}],75:[function(require,module,exports){
 'use strict';
 
 var ndarray = require('ndarray')
@@ -4100,17 +4927,20 @@ function greedyND(arr, getMaterial, getColor, doAO, aoValues, revAoVal) {
 
   if (DEBUG) {
     t3 += time2-timeStart; ct++
-    console.log('took: ', (f(time2-timeStart)),
-                'avg masking:', f(t0/ct),
-                ' - meshing:', f(t1/ct),
-                ' - overall', f(t3/ct) )
+    console.log('took: ', (time2-timeStart).toFixed(2),
+                'avg masking:', (t0/ct).toFixed(2),
+                ' - meshing:', (t1/ct).toFixed(2),
+                ' - overall', (t3/ct).toFixed(2) )
+    if (window.resetDebug) {
+      window.resetDebug = false
+      t0 = t1 = t3 = ct = 0
+    }
   }
 
   // done, return array of submeshes
   return submeshes
 }
 
-function f(n) { return n.toFixed(2) }
 
 
 
@@ -4426,7 +5256,7 @@ function pushAOColor( colors, baseCol, ao, aoVals, revAOval ) {
 
 
 
-},{"ndarray":131}],61:[function(require,module,exports){
+},{"ndarray":145}],76:[function(require,module,exports){
 'use strict';
 
 var extend = require('extend')
@@ -4470,8 +5300,8 @@ function onShellInit(self) {
   // create shell listeners that drive engine functions
   var noa = self._noa
   var shell = self._shell
-  shell.on('tick',   noa.tick.bind(noa) )
-  shell.on('render', noa.render.bind(noa) )
+  shell.on('tick',   function onTick(n)   { noa.tick(n)   })
+  shell.on('render', function onRender(n) { noa.render(n) })
   shell.on('resize', noa.rendering.resize.bind(noa.rendering) )
 
   detectPointerLock(self)
@@ -4601,77 +5431,16 @@ function detectPointerLock(self) {
 
 
 
-},{"events":214,"extend":83,"game-shell":96,"inherits":130}],62:[function(require,module,exports){
-'use strict';
-
-var createController = require('voxel-fps-controller')
-var extend = require('extend')
-
-module.exports = function(noa, opts) {
-  return makeControls(noa, opts)
-}
-
-/*
- *    Simple wrapper module for the controller library
- *
- *  Also decorate lib with logic to set camera zoom from mouse scrolling
- *
-*/
-
-var defaults = {
-  babylonCamera: true,  // needed for Babylon.js camera.  TODO: abstractify?
-  rotationScale: 0.0025,
-  // camera 'zoom' stuff
-  minCameraZoom: 0,
-  maxCameraZoom: 10,
-  cameraZoomStep: 1.5,
-}
-
-
-function makeControls(noa, opts) {
-  opts = extend( {}, defaults, opts )
-  
-  var stateObj = noa.inputs.state
-  var controls = createController(opts, stateObj)
-  
-  controls.zoomMin = opts.minCameraZoom
-  controls.zoomMax = opts.maxCameraZoom
-  controls.zoomStep = opts.cameraZoomStep
-  controls.tickZoom = tickZoom.bind(null, noa)
-  
-  return controls
-}
-
-
-
-function tickZoom(noa) {
-  // process any (cumulative) scroll inputs and then clear
-  var scroll = noa.inputs.state.scrolly
-  if (scroll === 0) return
-  noa.inputs.state.scrolly = 0
-  
-  // handle zoom controls
-  var self = noa.controls
-  var z = noa.rendering.zoomDistance
-  z += (scroll>0) ? self.zoomStep : -self.zoomStep
-  if (z < self.zoomMin) z = self.zoomMin
-  if (z > self.zoomMax) z = self.zoomMax
-  noa.rendering.zoomDistance = z
-}
-
-
-
-},{"extend":83,"voxel-fps-controller":133}],63:[function(require,module,exports){
+},{"events":193,"extend":97,"game-shell":110,"inherits":144}],77:[function(require,module,exports){
 'use strict';
 
 var extend = require('extend')
 var aabb = require('aabb-3d')
 var vec3 = require('gl-vec3')
-var boxIntersect = require('box-intersect')
 var EntitySystem = require('ensy')
 
 module.exports = function (noa, opts) {
-	return new EntityManager(noa, opts)
+	return new Entities(noa, opts)
 }
 
 var defaults = {
@@ -4687,7 +5456,7 @@ var defaults = {
  *
 */
 
-function EntityManager(noa, opts) {
+function Entities(noa, opts) {
 	this.noa = noa
 	opts = extend(defaults, opts)
 	
@@ -4698,13 +5467,16 @@ function EntityManager(noa, opts) {
 	// set up ECS and built-in components
 	this.ecs = new EntitySystem()
 	this.components = {}
+	this.processors = {}
 	setupComponents(this)
-	
+
 	var self = this
-	noa.on('beforeRender', function(dt){ beforeRender(self, dt) })
-	noa.on('tick',         function(dt){ tick(self, dt) })
+	noa.on('beforeRender', function (dt) {
+		updateMeshPositions(self, dt)
+		doCameraTracking(self, dt) 
+	})
+	noa.on('tick', function (dt) { tick(self, dt) })
 }
-var proto = EntityManager.prototype
 
 
 
@@ -4715,59 +5487,121 @@ var proto = EntityManager.prototype
  *
 */
 
-proto.createComponent = function (name, data) {
-	if (!data) data = {}
-	return this.ecs.addComponent(name, { state:data })
+Entities.prototype.createComponent = function (comp, dataRemove) {
+	
+	// todo: remove after converting components to objects
+	if (typeof comp === 'string') {
+		comp = {
+			name: comp,
+			state: dataRemove || {}
+		}
+	}
+
+	this.ecs.addComponent(comp.name, comp)
+
+	if (comp.processor) {
+		var ecs = this.ecs
+		var name = comp.name
+		var proc = comp.processor
+		this.processors[name] = {
+			update: function runProcessor(dt) {
+				var states = ecs.getComponentsData(name)
+				proc(dt, states)
+			}
+		}
+		this.ecs.addProcessor(this.processors[name])
+	}
 }
-proto.deleteComponent = function (name) {
+
+Entities.prototype.deleteComponent = function (comp) {
+	var name = (typeof comp === 'string') ? comp : comp.name
+	this.ecs.removeProcessor(this.processors[name])
 	return this.ecs.removeComponent(name)
 }
 
-proto.createEntity = function (compList) {
-	return this.ecs.createEntity(compList || [])
+Entities.prototype.createEntity = function (compList) {
+	var eid = this.ecs.createEntity([])
+	if (compList && compList.length) {
+		for (var i = 0; i < compList.length; ++i) {
+			this.addComponent(eid, compList[i])
+		}
+	}
+	return eid
 }
-proto.removeEntity = function (entID) {
+
+Entities.prototype.removeEntity = function (entID) {
+	// manually remove components so that callbacks can fire
+	var compNames = this.ecs.getComponentsList()
+	for (var i = 0; i < compNames.length; ++i) {
+		var name = compNames[i]
+		if (this.ecs.entityHasComponent(entID, name)) {
+			this.removeComponent(entID, name)
+		}
+	}
 	return this.ecs.removeEntity(entID)
 }
 
-proto.addComponent = function (entID, comp, data) {
-	this.ecs.addComponentsToEntity([comp], entID)
-	if (!data) return
-	var entData = this.ecs.getComponentDataForEntity(comp, entID)
-	for (var s in data) {
-		if (!entData.hasOwnProperty(s)) throw new Error("Supplied data object doesn't match component data")
-		entData[s] = data[s]
+var tmpArray = ['foo']
+Entities.prototype.addComponent = function (entID, comp, data) {
+	var name = (typeof comp === 'string') ? comp : comp.name
+	tmpArray[0] = name
+	this.ecs.addComponentsToEntity(tmpArray, entID)
+
+	var compData = this.ecs.getComponentDataForEntity(name, entID)
+	if (data) {
+		for (var s in data) {
+			if (!compData.hasOwnProperty(s)) throw new Error("Supplied data object doesn't match component data")
+			compData[s] = data[s]
+		}
 	}
-}
-proto.removeComponent = function (entID, comps) {
-	if (!(comps.length && typeof comps==='object')) comps = [comps]
-	return this.ecs.removeComponentsFromEntity(comps, entID)
-}
-proto.hasComponent = function (entID, compName) {
-	return this.ecs.entityHasComponent(entID, compName)
+	var compDef = this.ecs.components[name]
+	if (compDef.onAdd) compDef.onAdd(entID, compData)
 }
 
-proto.getData = function (entID, compName) {
-	return this.ecs.getComponentDataForEntity(compName, entID)
+Entities.prototype.removeComponent = function (entID, comp) {
+	if (comp.length && typeof comp === 'object') throw new Error("Remove one component at a time..")
+
+	var name = (typeof comp === 'string') ? comp : comp.name
+	var compDef = this.ecs.components[name]
+	if (compDef.onRemove) {
+		var compData = this.ecs.getComponentDataForEntity(name, entID)
+		compDef.onRemove(entID, compData)
+	}
+	return this.ecs.removeComponentsFromEntity([name], entID)
 }
-proto.getDataList = function (compName) {
-	return this.ecs.getComponentsData(compName)
+
+Entities.prototype.hasComponent = function (entID, comp) {
+	var name = (typeof comp === 'string') ? comp : comp.name
+	return this.ecs.entityHasComponent(entID, name)
+}
+
+Entities.prototype.getData = function (entID, comp) {
+	var name = (typeof comp === 'string') ? comp : comp.name
+	return this.ecs.getComponentDataForEntity(name, entID)
+}
+
+Entities.prototype.getDataList = function (comp) {
+	var name = (typeof comp === 'string') ? comp : comp.name
+	return this.ecs.getComponentsData(name)
 }
 
 // Accessor for 'systems' to map a function over each item in a component data list
 // takes: function(componentData, id) 
 // breaks early if fn() returns false
-proto.loopOverComponent = function(component, fn) {
-	var entList = this.ecs.getComponentsData( component )
-	var ids = Object.keys(entList)
-	for (var i=0; i<ids.length; ++i) {
-		var id = ids[i]
-		var res = fn(entList[id], id)
+Entities.prototype.loopOverComponent = function (comp, fn) {
+	var name = (typeof comp === 'string') ? comp : comp.name
+	var ents = this.ecs.getComponentsData(name)
+	for (var i = 0; i < ents.length; ++i) {
+		var dat = ents[i]
+		var res = fn(dat, dat.__id)
 		if (res === false) return false
 	}
 	return true
 }
 
+Entities.prototype.update = function (dt) {
+	this.ecs.update(dt)
+}
 
 
 
@@ -4779,30 +5613,27 @@ proto.loopOverComponent = function(component, fn) {
 
 function setupComponents(self) {
 	var comps = self.components
-	
-	comps.aabb = 'aabb'
-	comps.shadow = 'has-shadow'
-	comps.physics = 'physics-body'
-	comps.mesh = 'has-mesh'
-	comps.player = 'is-player'
-	comps.collideTerrain = 'collide-terrain'
-	comps.collideEntities = 'collide-entities'
-	comps.countdown = 'countdown'
-	comps.sprite = 'is-sprite'
-	
-	self.createComponent( comps.aabb,            {aabb: null })
-	self.createComponent( comps.shadow,          {mesh: null, size:0.5 })
-	self.createComponent( comps.physics,         {body: null })
-	self.createComponent( comps.mesh,            {mesh: null, offset: null, isSprite:false })
-	self.createComponent( comps.player,          {})
-	self.createComponent( comps.collideTerrain,  { callback:null })
-	self.createComponent( comps.collideEntities, { callback:null })
-	self.createComponent( comps.countdown,       { delay:0.5, callback:null })
-	self.createComponent( comps.sprite,          {})
-	
-	// internal use
-	comps.autoStepping = 'autostepping'
-	self.createComponent( comps.autoStepping, { time:100.1 })
+	var noa = self.noa
+
+	comps.aabb = require('../components/aabb')(noa)
+	comps.shadow = require('../components/shadow')(noa)
+	comps.physics = require('../components/physics')(noa)
+	comps.mesh = require('../components/mesh')(noa)
+	comps.player = require('../components/player')(noa)
+	comps.collideTerrain = require('../components/collideTerrain')(noa)
+	comps.collideEntities = require('../components/collideEntities')(noa)
+	comps.countdown = require('../components/countdown')(noa)
+	comps.sprite = require('../components/sprite')(noa)
+	comps.autoStepping = require('../components/autostepping')(noa)
+	comps.movement = require('../components/movement')(noa)
+	comps.receivesInputs = require('../components/receivesInputs')(noa)
+	comps.followsPlayer = require('../components/followsPlayer')(noa)
+	comps.fadeOnZoom = require('../components/fadeOnZoom')(noa)
+
+	var names = Object.keys(comps)
+	for (var i = 0; i < names.length; i++) {
+		self.createComponent(comps[names[i]])
+	}
 }
 
 
@@ -4813,22 +5644,26 @@ function setupComponents(self) {
 */
 
 
-proto.isPlayer = function(eid) {
+Entities.prototype.isPlayer = function (eid) {
 	return this.hasComponent(eid, this.components.player)
 }
-proto.getAABB = function(eid) {
+Entities.prototype.getAABB = function (eid) {
 	return this.getData(eid, this.components.aabb).aabb
 }
-proto.getPosition = function(eid) {
+Entities.prototype.getPosition = function (eid) {
 	var box = this.getData(eid, this.components.aabb).aabb
 	var loc = box.base
 	var size = box.vec
-	return [ loc[0] + size[0]/2, loc[1], loc[2] + size[2]/2 ]
+	return vec3.fromValues(
+		loc[0] + size[0] / 2,
+		loc[1],
+		loc[2] + size[2] / 2
+		)
 }
-proto.getPhysicsBody = function(eid) {
+Entities.prototype.getPhysicsBody = function (eid) {
 	return this.getData(eid, this.components.physics).body
 }
-proto.getMeshData = function(eid) {
+Entities.prototype.getMeshData = function (eid) {
 	return this.getData(eid, this.components.mesh)
 }
 
@@ -4842,26 +5677,26 @@ proto.getMeshData = function(eid) {
 */
 
 
-proto.isTerrainBlocked = function (x, y, z) {
+Entities.prototype.isTerrainBlocked = function (x, y, z) {
 	// checks if terrain location is blocked by entities
 	var newbb = new aabb([x, y, z], [1, 1, 1])
-	var self = this
-	var res = this.loopOverComponent(this.components.collideTerrain, function(data, id) {
-		var bb = self.getAABB(id)
-		if (bb.intersects(newbb) && !bb.touches(newbb)) return false;
-	})
-	return !res // res==false --> broke early --> blocked	
+	var datArr = this.getDataList(this.components.collideTerrain)
+	for (var i = 0; i < datArr.length; i++) {
+		var bb = this.getAABB(datArr[i].__id)
+		if (newbb.intersects(bb) && !newbb.touches(bb)) return true;
+	}
+	return false
 }
 
 
 // Add a new entity, and automatically populates the main components 
 // based on arguments if they're present
-proto.add = function (position, width, height, // required
-                      mesh, meshOffset, 
-					  doPhysics,
-                      collideTerrain, onCollideTerr, 
-                      collideEntities, onCollideEnt, 
-                      shadow, isSprite) {
+Entities.prototype.add = function (position, width, height, // required
+	mesh, meshOffset,
+	doPhysics,
+	collideTerrain, onCollideTerr,
+	collideEntities, onCollideEnt,
+	shadow, isSprite) {
 	var comps = this.components
 	var self = this
 	
@@ -4875,76 +5710,58 @@ proto.add = function (position, width, height, // required
 	// rigid body in physics simulator
 	var body
 	if (doPhysics) {
-		body = this.noa.physics.addBody(box)
-		this.addComponent(eid, comps.physics, {body:body})
+		// body = this.noa.physics.addBody(box)
+		this.addComponent(eid, comps.physics)
+		body = this.getPhysicsBody(eid)
+		body.aabb = box
 		
 		// handler for physics engine to call on auto-step
-		body.onStep = function() {
+		body.onStep = function () {
 			self.addComponent(eid, self.components.autoStepping)
 		}
 	}	
 	
 	// aabb component - use aabb from physics body if it's present
-	var boxData = {aabb:box}
+	var boxData = { aabb: box }
 	if (body) boxData.aabb = body.aabb
 	this.addComponent(eid, comps.aabb, boxData)
 	
 	// mesh for the entity
 	if (mesh) {
 		if (!meshOffset) meshOffset = vec3.create()
-		var meshData = {
+		this.addComponent(eid, comps.mesh, {
 			mesh: mesh,
 			offset: meshOffset
-		}
-		this.addComponent(eid, comps.mesh, meshData)
-		
-		this.noa.rendering.addDynamicMesh(mesh)
+		})
+
 		if (isSprite) {
 			this.addComponent(eid, comps.sprite)
-			// just turns on billboard.Y
-			this.noa.rendering.setUpSpriteMesh(mesh)
 		}
 	}
 	
 	// managed shadow mesh for the entity
 	if (shadow) {
-		var shadowMesh = this.noa.rendering.makeMeshInstance('shadow', false)
-		var shadowDat = {mesh:shadowMesh, size:width}
-		this.addComponent(eid, comps.shadow, shadowDat)
+		this.addComponent(eid, comps.shadow, { size: width })
 	}
 	
 	// flag and optional callback for colliding w/ terrain
 	if (collideTerrain) {
-		var terrDat = {}
-		if (onCollideTerr) terrDat.callback = onCollideTerr
-		this.addComponent(eid, comps.collideTerrain, terrDat)
-		// collide handler for physics engine to call
-		if (body) {
-			var collideComp = this.components.collideTerrain
-			body.onCollide = function(impulse) {
-				if (self.hasComponent(eid, collideComp)) {
-					var cb = self.getData(eid, collideComp).callback
-					if (cb) cb(impulse, eid)
-				}
-			}
-		}
+		this.addComponent(eid, comps.collideTerrain, { callback: onCollideTerr })
 	}
 
 	// flag and optional callback for colliding w/ other entities
 	if (collideEntities) {
-		var centDat = {}
-		if (onCollideEnt) centDat.callback = onCollideEnt
-		this.addComponent(eid, comps.collideEntities, centDat)
+		this.addComponent(eid, comps.collideEntities, { callback: onCollideEnt })
 	}
 
 	return eid
 }
 
 
-proto.remove = function (eid) {
+Entities.prototype.remove = function (eid) {
 	// defer removal until next tick function, since entities are likely to
 	// call this on themselves during collsion handlers or tick functions
-	if (this._toRemove.indexOf(eid) < 0) this._toRemove.push(eid);	
+	if (this._toRemove.indexOf(eid) < 0) this._toRemove.push(eid);
 }
 
 
@@ -4962,44 +5779,43 @@ proto.remove = function (eid) {
 
 function tick(self, dt) {
 	// handle any deferred entities that need removing
-	doDeferredRemovals(self)
-	// 			ECS processors	
-	// entity-entity collisions
-	doEntityCollisions(self)
-	// set all shadow heights
-	updateShadowHeights(self)
-	// countdown processor
-	self.loopOverComponent(self.components.countdown, function(data) {
-		data.delay -= dt
-		if (data.delay < 0) data.callback()
-	})
-	// facing processor - faces sprite meshes towards camera
-	self.loopOverComponent(self.components.sprite, function(data, id) {
-		var box = self.getAABB(id)
-		var mesh = self.getMeshData(id).mesh
-		self.noa.rendering.adjustSpriteMeshHeight(box, mesh)
-	})	
+	var comps = self.components
+	while (self._toRemove.length) {
+		var eid = self._toRemove.pop()
+		if (self.hasComponent(eid, comps.mesh)) {
+			self.getMeshData(eid).mesh.dispose()
+		}
+		self.removeEntity(eid)
+	}
 }
 
 
 
+var tempvec = vec3.create()
 
-function beforeRender (self, dt) {
+
+function updateMeshPositions(self, dt) {
 	// update meshes to physics positions, advanced into the future by dt
 	// dt is time (ms) since physics engine tick, to avoid temporal aliasing
 	// http://gafferongames.com/game-physics/fix-your-timestep/
 	var comps = self.components
 	var pos = tempvec
-	self.loopOverComponent(comps.mesh, function(data, id) {
+
+	var states = self.ecs.getComponentsData(comps.mesh.name)
+	for (var i = 0; i < states.length; ++i) {
+		var data = states[i]
+		var id = data.__id
+
+		if (!self.hasComponent(id, comps.physics)) continue
 		var mesh = data.mesh
 		var offset = data.offset
 		var body = self.getPhysicsBody(id)
-		
+
 		vec3.add(pos, body.aabb.base, offset)
-		vec3.scaleAndAdd(pos, pos, body.velocity, dt/1000)
+		vec3.scaleAndAdd(pos, pos, body.velocity, dt / 1000)
 		mesh.position.x = pos[0]
 		mesh.position.z = pos[2]
-		
+
 		if (self.hasComponent(id, comps.autoStepping)) {
 			// soften player mesh movement for a short while after autosteps
 			mesh.position.y += .3 * (pos[1] - mesh.position.y)
@@ -5015,90 +5831,38 @@ function beforeRender (self, dt) {
 			shadow.position.x = pos[0]
 			shadow.position.z = pos[2]
 		}
-	})
+	}
 }
 
 
-
-/*
- *
- *		SYSTEMS - i.e. functions that loop over component data each tick or render
- *
-*/
-
-
-var tempvec = vec3.create()
-var down = vec3.fromValues(0, -1, 0)
-
-function updateShadowHeights(self) {
-	self.loopOverComponent(self.components.shadow, function(data, id) {
-		var mesh = data.mesh
-		var size = data.size
-		var loc = self.getPosition(id)
-		
-		var pick = self.noa.pick(loc, down, self.shadowDist)
-		if (pick) {
-			var y = pick.position[1]
-			mesh.position.y = y + 0.05
-			var dist = loc[1] - y
-			var scale = size * 0.7 * (1-dist/self.shadowDist)
-			mesh.scaling.copyFromFloats(scale, scale, scale)
-			mesh.setEnabled(true)
-		} else {
-			mesh.setEnabled(false)
-		}	
-	})
-}
-
-
-
-
-function doDeferredRemovals(self) {
-	var comps = self.components
-	while (self._toRemove.length) {
-		var eid = self._toRemove.pop()
-		if (self.hasComponent(eid, comps.mesh)) {
-			self.getMeshData(eid).mesh.dispose()
-		}
-		if (self.hasComponent(eid, comps.shadow)) {
-			self.getData(eid, comps.shadow).mesh.dispose()
-		}
-		if (self.hasComponent(eid, comps.physics)) {
-			self.noa.physics.removeBody( self.getPhysicsBody(eid) )
-		}
-		self.removeEntity(eid)
+function doCameraTracking(self, dt) {
+	// set the camera target entity to track the player mesh's position
+	// tests for the tracking component so that client can easily override
+	
+	var cid = self.noa.cameraTarget
+	if (!self.hasComponent(cid, self.components.followsPlayer)) return
+	
+	var pid = self.noa.playerEntity
+	var cam = self.getAABB(cid)
+	var player = self.getAABB(pid)
+	
+	// camera target at 90% of entity's height
+	if (self.hasComponent(pid, self.components.mesh)) {
+		var pos = self.getMeshData(pid).mesh.position
+		vec3.set(cam.base, pos.x, pos.y, pos.z)
+		cam.base[1] += player.vec[1] * 0.4
+	} else {
+		vec3.scaleAndAdd(cam.base, player.base, player.vec, 0.5)  
+		cam.base[1] += player.vec[1] * 0.4
 	}
 }
 
 
 
-function doEntityCollisions(self) {
-	// build array of [lo, lo, hi, hi] arrays
-	var intervals = [], ids = []
-	self.loopOverComponent(self.components.collideEntities, function(data, id) {
-		var box = self.getAABB(id)
-		var lo = box.base
-		var s = box.vec
-		intervals.push([lo[0], lo[1], lo[2], lo[0]+s[0], lo[1]+s[1], lo[2]+s[2]])
-		ids.push(id)
-	})
-	var collideEnt = self.components.collideEntities
-	boxIntersect( intervals, function(i, j) {
-		var iid = ids[i]
-		var jid = ids[j]
-		var ihandler = self.getData(iid, collideEnt).callback
-		if (ihandler) ihandler(iid, jid)
-		var jhandler = self.getData(jid, collideEnt).callback
-		if (jhandler) jhandler(jid, iid)
-	})
-}
 
 
 
-
-
-
-},{"aabb-3d":69,"box-intersect":71,"ensy":81,"extend":83,"gl-vec3":108}],64:[function(require,module,exports){
+},{"../components/aabb":59,"../components/autostepping":60,"../components/collideEntities":61,"../components/collideTerrain":62,"../components/countdown":63,"../components/fadeOnZoom":64,"../components/followsPlayer":65,"../components/mesh":66,"../components/movement":67,"../components/physics":68,"../components/player":69,"../components/receivesInputs":70,"../components/shadow":71,"../components/sprite":72,"aabb-3d":83,"ensy":95,"extend":97,"gl-vec3":122}],78:[function(require,module,exports){
 'use strict';
 
 var createInputs = require('game-inputs')
@@ -5143,7 +5907,7 @@ function makeInputs(noa, opts, element) {
 
 
 
-},{"extend":83,"game-inputs":84}],65:[function(require,module,exports){
+},{"extend":97,"game-inputs":98}],79:[function(require,module,exports){
 'use strict';
 
 var createPhysics = require('voxel-physics-engine')
@@ -5180,7 +5944,7 @@ function makePhysics(noa, opts) {
 
 
 
-},{"extend":83,"voxel-physics-engine":168}],66:[function(require,module,exports){
+},{"extend":97,"voxel-physics-engine":147}],80:[function(require,module,exports){
 'use strict';
 
 var extend = require('extend')
@@ -5401,10 +6165,17 @@ Registry.prototype.getBlockProps = function(id) {
 */
 
 
-// look up material ID given block id and face
-// dir is a value 0..5: [ +x, -x, +y, -y, +z, -z ]
-Registry.prototype.getBlockFaceMaterial = function(blockId, dir) {
-  return this._blockMats[blockId*6 + dir]
+// Returns accessor to look up material ID given block id and face
+//    accessor is function(blockID, dir)
+//    dir is a value 0..5: [ +x, -x, +y, -y, +z, -z ]
+Registry.prototype.getBlockFaceMaterialAccessor = function() {
+  if (!this._storedBFMAccessor) {
+    var bms = this._blockMats
+    this._storedBFMAccessor = function(blockId, dir) {
+      return bms[blockId*6 + dir]
+    }
+  }
+  return this._storedBFMAccessor
 }
 
 // look up material color given ID
@@ -5425,11 +6196,17 @@ Registry.prototype.getMaterialColor = function(matID) {
   return this._matData[matID].color
 }
 
-// color to be used for vertices of blocks with this material
+// returns accessor to look up color used for vertices of blocks of given material
 // - i.e. white if it has a texture, color otherwise
-Registry.prototype.getMaterialVertexColor = function(matID) {
-  if (this._matData[matID].texture) return [1,1,1]
-  return this._matData[matID].color
+Registry.prototype.getMaterialVertexColorAccessor = function() {
+  if (!this._storedMVCAccessor) {
+    var matData = this._matData
+    this._storedMVCAccessor = function(matID) {
+      if (matData[matID].texture) return [1,1,1]
+      return matData[matID].color
+    }
+  }
+  return this._storedMVCAccessor
 }
 
 // look up material texture given ID
@@ -5446,7 +6223,7 @@ Registry.prototype.getMaterialData = function(matID) {
 
 
 
-},{"extend":83}],67:[function(require,module,exports){
+},{"extend":97}],81:[function(require,module,exports){
 'use strict';
 /* globals BABYLON */
 
@@ -5500,11 +6277,12 @@ function Rendering(noa, _opts, canvas) {
   initScene(this, canvas, opts)
 
   // Events and handling for meshing chunks when needed
+  var self = this
   this._meshedChunks = {}
   this._chunksToMesh = []
-  noa.world.on('chunkAdded',   onChunkAdded.bind(null, this) )
-  noa.world.on('chunkRemoved', onChunkRemoved.bind(null, this) )
-  noa.world.on('chunkChanged', onChunkChanged.bind(null, this) )
+  noa.world.on('chunkAdded',   function(chunk) { onChunkAdded(self, chunk) })
+  noa.world.on('chunkRemoved', function(chunk) { onChunkRemoved(self, chunk) })
+  noa.world.on('chunkChanged', function(i,j,k) { onChunkChanged(self, i, j, k) })
 
   // internals
   this._materialCache = {}
@@ -5629,8 +6407,9 @@ Rendering.prototype.getCameraVector = function() {
   var vec = new vec3(0,0,1)
   return vec3.TransformCoordinates(vec, this._rotationHolder.getWorldMatrix())
 }
+var zero = vec3.Zero()
 Rendering.prototype.getCameraPosition = function() {
-  return vec3.TransformCoordinates(vec3.Zero(), this._camera.getWorldMatrix())
+  return vec3.TransformCoordinates(zero, this._camera.getWorldMatrix())
 }
 Rendering.prototype.getCameraRotation = function() {
   var rot = this._rotationHolder.rotation
@@ -5804,10 +6583,11 @@ function removeMesh(self, id) {
 // given an updated chunk reference, run it through mesher
 function meshChunk(self, chunk) {
   var noa = self.noa
-  var matGetter = noa.registry.getBlockFaceMaterial.bind(noa.registry)
-  var colGetter = noa.registry.getMaterialVertexColor.bind(noa.registry)
+  var matGetter = noa.registry.getBlockFaceMaterialAccessor()
+  var colGetter = noa.registry.getMaterialVertexColorAccessor()
   // returns an array of chunk#Submesh
-  return chunk.mesh(matGetter, colGetter, self.useAO, self.aoVals, self.revAoVal )
+  var blockFaceMats = noa.registry._blockMats
+  return chunk.mesh(matGetter, colGetter, self.useAO, self.aoVals, self.revAoVal, blockFaceMats )
 }
 
 
@@ -5817,15 +6597,12 @@ function meshChunk(self, chunk) {
  *
 */
 
-function getMeshEyePosition(self) {
-  // eye position relative to player mesh (not physics body)
-  var pid = self.noa.playerEntity
-  var ent = self.noa.entities
-  var mesh = ent.getMeshData(pid).mesh
-  var height = ent.getAABB(pid).vec[1]
-  var pos = mesh.position.clone() // mesh center
-  pos.y += .4 * height // center+.4*height
-  return pos
+var tempVec = new vec3(), cachedCamPos
+
+function getCameraFocusPos(self) {
+  if (!cachedCamPos) cachedCamPos = self.noa.entities.getAABB(self.noa.cameraTarget).base
+  tempVec.copyFromFloats(cachedCamPos[0], cachedCamPos[1], cachedCamPos[2])
+  return tempVec
 }
 
 
@@ -5846,17 +6623,18 @@ function checkCameraObstructions(self) {
 }
 
 
-// find location/distance to solid block, picking from mesh eye along camera vector
+// find location/distance to solid block, picking from player eye along camera vector
+var _posVec = glvec3.create(), _vecVec = glvec3.create()
 
 function pickAlongCameraVector(self, dist, invert) {
-  var pos = getMeshEyePosition(self)
+  var pos = getCameraFocusPos(self)
   var cam = self.getCameraVector()
-  // need gl-vec3 vectors to pass to noa#pick
+  // need cam vector to be a gl-vec3 vectors to pass to noa#pick
   var m = invert ? -1 : 1
-  var vpos = glvec3.fromValues(  pos.x,   pos.y,   pos.z)
-  var vcam = glvec3.fromValues(m*cam.x, m*cam.y, m*cam.z)
-  var res = self.noa.pick(vpos, vcam, dist)
-  if (res) res.distance = glvec3.distance(vpos, res.position)
+  glvec3.set(_posVec, pos.x,   pos.y,   pos.z)
+  glvec3.set(_vecVec, m*cam.x, m*cam.y, m*cam.z)
+  var res = self.noa.pick(_posVec, _vecVec, dist)
+  if (res) res.distance = glvec3.distance(_posVec, res.position)
   return res
 }
 
@@ -5864,10 +6642,10 @@ function pickAlongCameraVector(self, dist, invert) {
 // Various updates to camera position/zoom, called every render
 
 function updateCamera(self) {
-  var pos = getMeshEyePosition(self)
-  self._cameraHolder.position.copyFrom(pos.addInPlace(self._camPosOffset))
+  // set camera holder pos to cameraTarget entity position + camOffset
+  getCameraFocusPos(self).addToRef(self._camPosOffset, self._cameraHolder.position)
   self._cameraHolder.rotation.copyFrom(self._rotationHolder.rotation)
-
+  
   // tween camera towards capped position
   self._currentZoom += self._cameraZoomSpeed * (self._cappedZoom-self._currentZoom)
   self._camera.position.z = -self._currentZoom
@@ -5882,19 +6660,9 @@ function updateCamera(self) {
   }
 
   // misc effects
-  fadePlayerMesh(self)
   checkCameraEffect(self, id)
 }
 
-
-// hide player mesh if camera is too close
-// TODO: make option for cutoff distance
-function fadePlayerMesh(self) {
-  // fade player model when zoomed in close
-  var m = self.noa.playerEntity.mesh
-  if (!m) return
-  m.visibility = (self._currentZoom>3);
-}
 
 
 
@@ -5905,7 +6673,8 @@ function checkCameraEffect(self, id) {
   if (id === 0) {
     self._camScreen.setEnabled(false)
   } else {
-    var matId = self.noa.registry.getBlockFaceMaterial(id, 0)
+    var matAccessor = self.noa.registry.getBlockFaceMaterialAccessor()
+    var matId = matAccessor(id, 0)
     var matData = self.noa.registry.getMaterialData(matId)
     var col = matData.color
     var alpha = matData.alpha
@@ -5954,10 +6723,11 @@ function getHighlightMesh(rendering) {
 
 
 // manage materials/textures to avoid duplicating them
-function getOrCreateMaterial(self, name, createFcn) {
+function getOrCreateMaterial(self, matID) {
+  var name = 'terrain'+matID
   var mat = self._materialCache[name]
   if (!mat) {
-    mat = createFcn()
+    mat = makeTerrainMaterial(self, matID)
     self._materialCache[name] = mat
   }
   return mat
@@ -6053,8 +6823,7 @@ function makeChunkMesh(self, meshdata, id, chunk) {
     var m = new BABYLON.Mesh( 'terr'+matID, self._scene )
     m.parent = mesh
 
-    var makeMat = makeTerrainMaterial.bind(null,self,matID)
-    m.material = getOrCreateMaterial(self, 'terrain'+matID, makeMat)
+    m.material = getOrCreateMaterial(self, matID)
 
     var vdat = new BABYLON.VertexData()
     vdat.positions = mdat.positions
@@ -6107,7 +6876,7 @@ function createOctreeBlock(self, mesh, chunk, x, y, z) {
 
 
 
-},{"extend":83,"gl-vec3":108}],68:[function(require,module,exports){
+},{"extend":97,"gl-vec3":122}],82:[function(require,module,exports){
 'use strict';
 
 var extend = require('extend')
@@ -6424,7 +7193,7 @@ function findClosestChunk( ci, cj, ck, queue ) {
 
 
 
-},{"./chunk":60,"events":214,"extend":83,"inherits":130,"ndarray":131}],69:[function(require,module,exports){
+},{"./chunk":75,"events":193,"extend":97,"inherits":144,"ndarray":145}],83:[function(require,module,exports){
 module.exports = AABB
 
 var vec3 = require('gl-matrix').vec3
@@ -6542,7 +7311,7 @@ proto.union = function(aabb) {
 
 
 
-},{"gl-matrix":70}],70:[function(require,module,exports){
+},{"gl-matrix":84}],84:[function(require,module,exports){
 /**
  * @fileoverview gl-matrix - High performance matrix and vector operations
  * @author Brandon Jones
@@ -10792,7 +11561,7 @@ if(typeof(exports) !== 'undefined') {
   })(shim.exports);
 })(this);
 
-},{}],71:[function(require,module,exports){
+},{}],85:[function(require,module,exports){
 'use strict'
 
 module.exports = boxIntersectWrapper
@@ -10931,7 +11700,7 @@ function boxIntersectWrapper(arg0, arg1, arg2) {
       throw new Error('box-intersect: Invalid arguments')
   }
 }
-},{"./lib/intersect":73,"./lib/sweep":77,"typedarray-pool":80}],72:[function(require,module,exports){
+},{"./lib/intersect":87,"./lib/sweep":91,"typedarray-pool":94}],86:[function(require,module,exports){
 'use strict'
 
 var DIMENSION   = 'd'
@@ -11076,7 +11845,7 @@ function bruteForcePlanner(full) {
 
 exports.partial = bruteForcePlanner(false)
 exports.full    = bruteForcePlanner(true)
-},{}],73:[function(require,module,exports){
+},{}],87:[function(require,module,exports){
 'use strict'
 
 module.exports = boxIntersectIter
@@ -11571,7 +12340,7 @@ function boxIntersectIter(
     }
   }
 }
-},{"./brute":72,"./median":74,"./partition":75,"./sweep":77,"bit-twiddle":78,"typedarray-pool":80}],74:[function(require,module,exports){
+},{"./brute":86,"./median":88,"./partition":89,"./sweep":91,"bit-twiddle":92,"typedarray-pool":94}],88:[function(require,module,exports){
 'use strict'
 
 module.exports = findMedian
@@ -11714,7 +12483,7 @@ function findMedian(d, axis, start, end, boxes, ids) {
     start, mid, boxes, ids,
     boxes[elemSize*mid+axis])
 }
-},{"./partition":75}],75:[function(require,module,exports){
+},{"./partition":89}],89:[function(require,module,exports){
 'use strict'
 
 module.exports = genPartition
@@ -11735,7 +12504,7 @@ function genPartition(predicate, args) {
         .replace('$', predicate))
   return Function.apply(void 0, fargs)
 }
-},{}],76:[function(require,module,exports){
+},{}],90:[function(require,module,exports){
 'use strict';
 
 //This code is extracted from ndarray-sort
@@ -11972,7 +12741,7 @@ function quickSort(left, right, data) {
     quickSort(less, great, data);
   }
 }
-},{}],77:[function(require,module,exports){
+},{}],91:[function(require,module,exports){
 'use strict'
 
 module.exports = {
@@ -12407,7 +13176,7 @@ red_loop:
     }
   }
 }
-},{"./sort":76,"bit-twiddle":78,"typedarray-pool":80}],78:[function(require,module,exports){
+},{"./sort":90,"bit-twiddle":92,"typedarray-pool":94}],92:[function(require,module,exports){
 /**
  * Bit twiddling hacks for JavaScript.
  *
@@ -12613,7 +13382,7 @@ exports.nextCombination = function(v) {
 }
 
 
-},{}],79:[function(require,module,exports){
+},{}],93:[function(require,module,exports){
 "use strict"
 
 function dupe_array(count, value, i) {
@@ -12663,7 +13432,7 @@ function dupe(count, value) {
 }
 
 module.exports = dupe
-},{}],80:[function(require,module,exports){
+},{}],94:[function(require,module,exports){
 (function (global,Buffer){
 'use strict'
 
@@ -12880,7 +13649,7 @@ exports.clearCache = function clearCache() {
   }
 }
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {},require("buffer").Buffer)
-},{"bit-twiddle":78,"buffer":210,"dup":79}],81:[function(require,module,exports){
+},{"bit-twiddle":92,"buffer":189,"dup":93}],95:[function(require,module,exports){
 /*!
  * EntityManager JavaScript Library v0.2.0
  *
@@ -12979,6 +13748,7 @@ define(function () {
          *   this.entityComponentData[componentId]
          */
         this.entityComponentData = {};
+        this.entityComponentMap = {};
 
         // The ordered list of processors known by this manager.
         this.processors = [];
@@ -13021,13 +13791,13 @@ define(function () {
      */
     EntityManager.prototype.removeEntity = function (id) {
         // Remove all data for this entity.
-        for (var comp in this.entityComponentData) {
-            if (this.entityComponentData.hasOwnProperty(comp)) {
-                if (this.entityComponentData[comp][id]) {
-                    delete this.entityComponentData[comp][id];
-                }
+        var toRemove = [];
+        for (var comp in this.entityComponentMap) {
+            if (this.entityComponentMap[comp].hasOwnProperty(id)) {
+                toRemove.push(comp);
             }
         }
+        this.removeComponentsFromEntity(toRemove, id);
 
         // Remove the entity from the list of known entities.
         this.entities.splice(this.entities.indexOf(id), 1);
@@ -13047,6 +13817,8 @@ define(function () {
      */
     EntityManager.prototype.addComponent = function (id, component) {
         this.components[id] = component;
+        this.entityComponentMap[id] = {};
+        this.entityComponentData[id] = [];
         return this;
     };
 
@@ -13058,6 +13830,7 @@ define(function () {
      */
     EntityManager.prototype.removeComponent = function (id) {
         delete this.components[id];
+        delete this.entityComponentMap[id];
         delete this.entityComponentData[id];
         return this;
     };
@@ -13098,10 +13871,6 @@ define(function () {
         // entity and instanciate the component's states.
         for (i = componentIds.length - 1; i >= 0; i--) {
             comp = componentIds[i];
-
-            if (!this.entityComponentData[comp]) {
-                this.entityComponentData[comp] = {};
-            }
 
             var newCompState = null;
 
@@ -13146,7 +13915,10 @@ define(function () {
             // Store the entity's ID so it's easier to find other components for that entity.
             newCompState.__id = entityId;
 
-            this.entityComponentData[comp][entityId] = newCompState;
+            var map = this.entityComponentMap[comp]; 
+            var arr = this.entityComponentData[comp];
+            map[entityId] = arr.length;
+            arr.push(newCompState);
         }
 
         return this;
@@ -13178,10 +13950,20 @@ define(function () {
         for (i = componentIds.length - 1; i >= 0; i--) {
             comp = componentIds[i];
 
-            if (this.entityComponentData[comp]) {
-                if (this.entityComponentData[comp][entityId]) {
-                    delete this.entityComponentData[comp][entityId];
+            var datMap = this.entityComponentMap[comp];
+            var datArr = this.entityComponentData[comp];
+            var id = datMap[entityId]
+            if (datArr[id]) {
+                if (id==datArr.length-1) {
+                    // just remove last entry
+                    datArr.pop();
+                } else {
+                    // swap last entry in place of one to splice, and fix map 
+                    datArr[id] = datArr.pop()
+                    var movedID = datArr[id].__id
+                    datMap[movedID] = id
                 }
+                delete datMap[entityId]
             }
         }
 
@@ -13198,18 +13980,17 @@ define(function () {
      * @return {object} - Component data of one entity.
      */
     EntityManager.prototype.getComponentDataForEntity = function (componentId, entityId) {
-        if (!(componentId in this.components)) {
+        var datMap = this.entityComponentMap[componentId];
+        var datArr = this.entityComponentData[componentId];
+        if (!datMap) {
             throw new Error('Trying to use unknown component: ' + componentId);
         }
 
-        if (
-            !this.entityComponentData.hasOwnProperty(componentId) ||
-            !this.entityComponentData[componentId].hasOwnProperty(entityId)
-        ) {
+        if (!datMap.hasOwnProperty(entityId)) {
             throw new Error('No data for component ' + componentId + ' and entity ' + entityId);
         }
 
-        return this.entityComponentData[componentId][entityId];
+        return datArr[ datMap[entityId] ];
     };
 
     /**
@@ -13239,13 +14020,10 @@ define(function () {
      * @return {array} - List of component data for one component.
      */
     EntityManager.prototype.getComponentsData = function (componentId) {
-        if (!(componentId in this.components)) {
+        if (!this.entityComponentData.hasOwnProperty(componentId)) {
             throw new Error('Trying to use unknown component: ' + componentId);
         }
 
-        if (!this.entityComponentData.hasOwnProperty(componentId)) {
-            return [];
-        }
 
         return this.entityComponentData[componentId];
     };
@@ -13258,14 +14036,12 @@ define(function () {
      * @return {boolean} - True if the entity has the component.
      */
     EntityManager.prototype.entityHasComponent = function (entityId, componentId) {
-        if (!(componentId in this.components)) {
+        var map = this.entityComponentMap[componentId]; 
+        if (!map) {
             throw new Error('Trying to use unknown component: ' + componentId);
         }
 
-        return (
-            this.entityComponentData.hasOwnProperty(componentId) &&
-            this.entityComponentData[componentId].hasOwnProperty(entityId)
-        );
+        return map.hasOwnProperty(entityId);
     };
 
     //=========================================================================
@@ -13360,7 +14136,7 @@ define(function () {
     return EntityManager;
 });
 
-},{"amdefine":82}],82:[function(require,module,exports){
+},{"amdefine":96}],96:[function(require,module,exports){
 (function (process,__filename){
 /** vim: et:ts=4:sw=4:sts=4
  * @license amdefine 1.0.0 Copyright (c) 2011-2015, The Dojo Foundation All Rights Reserved.
@@ -13665,7 +14441,7 @@ function amdefine(module, requireFn) {
 module.exports = amdefine;
 
 }).call(this,require('_process'),"/node_modules/noa-engine/node_modules/ensy/node_modules/amdefine/amdefine.js")
-},{"_process":217,"path":216}],83:[function(require,module,exports){
+},{"_process":196,"path":195}],97:[function(require,module,exports){
 var hasOwn = Object.prototype.hasOwnProperty;
 var toString = Object.prototype.toString;
 var undefined;
@@ -13748,7 +14524,7 @@ module.exports = function extend() {
 };
 
 
-},{}],84:[function(require,module,exports){
+},{}],98:[function(require,module,exports){
 'use strict';
 
 var vkey = require('vkey')
@@ -14008,7 +14784,7 @@ function XOR(a,b) {
 
 
 
-},{"./lib/mousewheel-polyfill.js":85,"events":214,"vkey":86}],85:[function(require,module,exports){
+},{"./lib/mousewheel-polyfill.js":99,"events":193,"vkey":100}],99:[function(require,module,exports){
 //Adapted from here: https://developer.mozilla.org/en-US/docs/Web/Reference/Events/wheel?redirectlocale=en-US&redirectslug=DOM%2FMozilla_event_reference%2Fwheel
 
 var prefix = "", _addEventListener, onwheel, support;
@@ -14068,7 +14844,7 @@ module.exports = function( elem, callback, useCapture ) {
     _addWheelListener( elem, "MozMousePixelScroll", callback, useCapture );
   }
 };
-},{}],86:[function(require,module,exports){
+},{}],100:[function(require,module,exports){
 var ua = typeof window !== 'undefined' ? window.navigator.userAgent : ''
   , isOSX = /OS X/.test(ua)
   , isOpera = /Opera/.test(ua)
@@ -14206,7 +14982,7 @@ for(i = 112; i < 136; ++i) {
   output[i] = 'F'+(i-111)
 }
 
-},{}],87:[function(require,module,exports){
+},{}],101:[function(require,module,exports){
 if(typeof window.performance === "object") {
   if(window.performance.now) {
     module.exports = function() { return window.performance.now() }
@@ -14219,9 +14995,9 @@ if(typeof window.performance === "object") {
   module.exports = function() { return (new Date()).getTime() }
 }
 
-},{}],88:[function(require,module,exports){
-module.exports=require(85)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/noa-engine/node_modules/game-inputs/lib/mousewheel-polyfill.js":85}],89:[function(require,module,exports){
+},{}],102:[function(require,module,exports){
+module.exports=require(99)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/noa-engine/node_modules/game-inputs/lib/mousewheel-polyfill.js":99}],103:[function(require,module,exports){
 // http://paulirish.com/2011/requestanimationframe-for-smart-animating/
 // http://my.opera.com/emoller/blog/2011/12/20/requestanimationframe-for-smart-er-animating
  
@@ -14251,7 +15027,7 @@ if (!window.cancelAnimationFrame)
         clearTimeout(id);
     };
 
-},{}],90:[function(require,module,exports){
+},{}],104:[function(require,module,exports){
 "use strict"
 
 function compileSearch(funcName, predicate, reversed, extraArgs, useNdarray, earlyOut) {
@@ -14313,7 +15089,7 @@ module.exports = {
   eq: compileBoundsSearch("-", true, "EQ", true)
 }
 
-},{}],91:[function(require,module,exports){
+},{}],105:[function(require,module,exports){
 /*!
   * domready (c) Dustin Diaz 2014 - License MIT
   */
@@ -14345,7 +15121,7 @@ module.exports = {
 
 });
 
-},{}],92:[function(require,module,exports){
+},{}],106:[function(require,module,exports){
 "use strict"
 
 function invert(hash) {
@@ -14359,9 +15135,9 @@ function invert(hash) {
 }
 
 module.exports = invert
-},{}],93:[function(require,module,exports){
+},{}],107:[function(require,module,exports){
 module.exports=require(55)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/ndarray-hash/node_modules/ndarray/node_modules/iota-array/iota.js":55}],94:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/ndarray-hash/node_modules/ndarray/node_modules/iota-array/iota.js":55}],108:[function(require,module,exports){
 "use strict"
 
 function unique_pred(list, compare) {
@@ -14420,9 +15196,9 @@ function unique(list, compare, sorted) {
 
 module.exports = unique
 
-},{}],95:[function(require,module,exports){
-module.exports=require(86)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/noa-engine/node_modules/game-inputs/node_modules/vkey/index.js":86}],96:[function(require,module,exports){
+},{}],109:[function(require,module,exports){
+module.exports=require(100)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/noa-engine/node_modules/game-inputs/node_modules/vkey/index.js":100}],110:[function(require,module,exports){
 "use strict"
 
 var EventEmitter = require("events").EventEmitter
@@ -15161,73 +15937,73 @@ function createShell(options) {
 
 module.exports = createShell
 
-},{"./lib/hrtime-polyfill.js":87,"./lib/mousewheel-polyfill.js":88,"./lib/raf-polyfill.js":89,"binary-search-bounds":90,"domready":91,"events":214,"invert-hash":92,"iota-array":93,"uniq":94,"util":219,"vkey":95}],97:[function(require,module,exports){
+},{"./lib/hrtime-polyfill.js":101,"./lib/mousewheel-polyfill.js":102,"./lib/raf-polyfill.js":103,"binary-search-bounds":104,"domready":105,"events":193,"invert-hash":106,"iota-array":107,"uniq":108,"util":198,"vkey":109}],111:[function(require,module,exports){
 module.exports=require(19)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/add.js":19}],98:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/add.js":19}],112:[function(require,module,exports){
 module.exports=require(20)
-},{"./dot":105,"./fromValues":107,"./normalize":116,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/angle.js":20}],99:[function(require,module,exports){
+},{"./dot":119,"./fromValues":121,"./normalize":130,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/angle.js":20}],113:[function(require,module,exports){
 module.exports=require(21)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/clone.js":21}],100:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/clone.js":21}],114:[function(require,module,exports){
 module.exports=require(22)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/copy.js":22}],101:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/copy.js":22}],115:[function(require,module,exports){
 module.exports=require(23)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/create.js":23}],102:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/create.js":23}],116:[function(require,module,exports){
 module.exports=require(24)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/cross.js":24}],103:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/cross.js":24}],117:[function(require,module,exports){
 module.exports=require(25)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/distance.js":25}],104:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/distance.js":25}],118:[function(require,module,exports){
 module.exports=require(26)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/divide.js":26}],105:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/divide.js":26}],119:[function(require,module,exports){
 module.exports=require(27)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/dot.js":27}],106:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/dot.js":27}],120:[function(require,module,exports){
 module.exports=require(28)
-},{"./create":101,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/forEach.js":28}],107:[function(require,module,exports){
+},{"./create":115,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/forEach.js":28}],121:[function(require,module,exports){
 module.exports=require(29)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/fromValues.js":29}],108:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/fromValues.js":29}],122:[function(require,module,exports){
 module.exports=require(30)
-},{"./add":97,"./angle":98,"./clone":99,"./copy":100,"./create":101,"./cross":102,"./distance":103,"./divide":104,"./dot":105,"./forEach":106,"./fromValues":107,"./inverse":109,"./length":110,"./lerp":111,"./max":112,"./min":113,"./multiply":114,"./negate":115,"./normalize":116,"./random":117,"./rotateX":118,"./rotateY":119,"./rotateZ":120,"./scale":121,"./scaleAndAdd":122,"./set":123,"./squaredDistance":124,"./squaredLength":125,"./subtract":126,"./transformMat3":127,"./transformMat4":128,"./transformQuat":129,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/index.js":30}],109:[function(require,module,exports){
+},{"./add":111,"./angle":112,"./clone":113,"./copy":114,"./create":115,"./cross":116,"./distance":117,"./divide":118,"./dot":119,"./forEach":120,"./fromValues":121,"./inverse":123,"./length":124,"./lerp":125,"./max":126,"./min":127,"./multiply":128,"./negate":129,"./normalize":130,"./random":131,"./rotateX":132,"./rotateY":133,"./rotateZ":134,"./scale":135,"./scaleAndAdd":136,"./set":137,"./squaredDistance":138,"./squaredLength":139,"./subtract":140,"./transformMat3":141,"./transformMat4":142,"./transformQuat":143,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/index.js":30}],123:[function(require,module,exports){
 module.exports=require(31)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/inverse.js":31}],110:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/inverse.js":31}],124:[function(require,module,exports){
 module.exports=require(32)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/length.js":32}],111:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/length.js":32}],125:[function(require,module,exports){
 module.exports=require(33)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/lerp.js":33}],112:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/lerp.js":33}],126:[function(require,module,exports){
 module.exports=require(34)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/max.js":34}],113:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/max.js":34}],127:[function(require,module,exports){
 module.exports=require(35)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/min.js":35}],114:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/min.js":35}],128:[function(require,module,exports){
 module.exports=require(36)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/multiply.js":36}],115:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/multiply.js":36}],129:[function(require,module,exports){
 module.exports=require(37)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/negate.js":37}],116:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/negate.js":37}],130:[function(require,module,exports){
 module.exports=require(38)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/normalize.js":38}],117:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/normalize.js":38}],131:[function(require,module,exports){
 module.exports=require(39)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/random.js":39}],118:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/random.js":39}],132:[function(require,module,exports){
 module.exports=require(40)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateX.js":40}],119:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateX.js":40}],133:[function(require,module,exports){
 module.exports=require(41)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateY.js":41}],120:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateY.js":41}],134:[function(require,module,exports){
 module.exports=require(42)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateZ.js":42}],121:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateZ.js":42}],135:[function(require,module,exports){
 module.exports=require(43)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/scale.js":43}],122:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/scale.js":43}],136:[function(require,module,exports){
 module.exports=require(44)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/scaleAndAdd.js":44}],123:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/scaleAndAdd.js":44}],137:[function(require,module,exports){
 module.exports=require(45)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/set.js":45}],124:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/set.js":45}],138:[function(require,module,exports){
 module.exports=require(46)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/squaredDistance.js":46}],125:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/squaredDistance.js":46}],139:[function(require,module,exports){
 module.exports=require(47)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/squaredLength.js":47}],126:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/squaredLength.js":47}],140:[function(require,module,exports){
 module.exports=require(48)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/subtract.js":48}],127:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/subtract.js":48}],141:[function(require,module,exports){
 module.exports=require(49)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformMat3.js":49}],128:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformMat3.js":49}],142:[function(require,module,exports){
 module.exports=require(50)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformMat4.js":50}],129:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformMat4.js":50}],143:[function(require,module,exports){
 module.exports=require(51)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformQuat.js":51}],130:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformQuat.js":51}],144:[function(require,module,exports){
 if (typeof Object.create === 'function') {
   // implementation from standard node.js 'util' module
   module.exports = function inherits(ctor, superCtor) {
@@ -15252,318 +16028,11 @@ if (typeof Object.create === 'function') {
   }
 }
 
-},{}],131:[function(require,module,exports){
+},{}],145:[function(require,module,exports){
 module.exports=require(54)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/ndarray-hash/node_modules/ndarray/ndarray.js":54,"buffer":210,"iota-array":132}],132:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/ndarray-hash/node_modules/ndarray/ndarray.js":54,"buffer":189,"iota-array":146}],146:[function(require,module,exports){
 module.exports=require(55)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/ndarray-hash/node_modules/ndarray/node_modules/iota-array/iota.js":55}],133:[function(require,module,exports){
-'use strict';
-
-var vec3 = require('gl-vec3')
-, extend = require('extend')
-
-
-module.exports = function(opts, control_state) {
-  return new FPSController(opts, control_state)
-}
-
-
-var twopi =  Math.PI * 2,
-    halfpi = Math.PI / 2,
-    rotXcutoff = halfpi-.0001 // engines may not like xRot == pi/2
-
-var defaults = {
-  maxSpeed: 10, 
-  moveForce: 30,
-  responsiveness: 15,
-  runningFriction: 0,
-  standingFriction: 50,
-
-  airMoveMult: 0.5,
-  jumpImpulse: 10,
-  jumpForce: 12,
-  jumpTime: 500, // ms
-  airJumps: 1,
-
-  crouchMoveMult: 0.6,
-  sprintMoveMult: 1.3,
-  inverseY: false,
-  rotationScale: 0.0002,
-  
-  babylonCamera: false
-}
-
-
-
-
-/* 
- *    CONSTRUCTOR - the controller
-*/
-function FPSController(opts, stateObj) {
-  this._target = null
-  this._camAccess = null
-  
-  // inputs state - obj with boolean properties like "jump" etc.
-  this.state = stateObj
-
-  // engine setup
-  opts = extend( {}, defaults, opts )
-  this.moveForce       = opts.moveForce
-  this.responsiveness  = opts.responsiveness
-  this.jumpImpulse     = opts.jumpImpulse
-  this.jumpForce       = opts.jumpForce
-  this.jumpTime        = opts.jumpTime
-  this.airJumps        = opts.airJumps
-  this.airMoveMult     = opts.airMoveMult
-  this.crouchMoveMult  = opts.crouchMoveMult
-  this.sprintMoveMult  = opts.sprintMoveMult
-  this.inverseY        = opts.inverseY
-  this.rotationScale   = opts.rotationScale
-  this.standingFriction= opts.standingFriction
-  this.runningFriction = opts.runningFriction
-  this.maxSpeed        = opts.maxSpeed
-  this.babylonCamera   = opts.babylonCamera
-  
-  this._jumping = false
-  this._airjumps = 0
-  this._currjumptime = 0
-  
-}
-
-
-
-var proto = FPSController.prototype
-
-// sets target object - expected to be a physics rigid body,
-//    such as you'd get from voxel-physics-engine#addBody
-proto.setTarget = function(target) {
-  if(target) this._target = target
-  return this._target
-}
-
-// camera accessor - expects an object with two methods:
-//    getRotationXY()  // returns [xrot,yrot]
-//    setRotationXY( xrot, yrot )
-proto.setCameraAccessor = function(camAccess) {
-  if(camAccess) this._camAccess = camAccess
-  return this._camAccess
-}
-
-
-
-var state, target, onGround
-, dx, dy, rotX, rotY, speed, camrot
-, m    = vec3.create()
-, push = vec3.create()
-, pushLen, canPush, pushAmt
-
-
-
-proto.tick = function(dt) {
-  if(!this._target || !this._camAccess) return
-  this.tickCamera(dt)
-  this.tickPhysics(dt)
-}
-
-
-proto.tickCamera = function(dt) {
-  // reads mouse inputs and adjusts a camera via accessors
-  state = this.state
-  
-  // Rotation: translate dx/dy inputs into y/x axis camera angle changes
-  dx = this.rotationScale * state.dy * ((this.inverseY) ? -1 : 1)
-  dy = this.rotationScale * state.dx
-  // normalize/clamp/update
-  camrot = this._camAccess.getRotationXY() // [x,y]
-  rotX = clamp( camrot[0] + dx, rotXcutoff )
-  rotY = (camrot[1] + dy) % twopi
-  this._camAccess.setRotationXY( rotX, rotY )
-}
-
-
-proto.tickPhysics = function(dt) {
-  // reads movement inputs and applies physics to the controlled body
-  state = this.state
-  target = this._target
-  onGround = (target.atRestY() < 0)
-  rotY = this._camAccess.getRotationXY()[1]
-
-  // jumping
-  var canjump = (onGround || this._airjumps < this.airJumps)
-  if (onGround) {
-    this._jumping = false
-    this._airjumps = 0
-  }
-  if (state.jump) {
-    if (this._jumping) { // continue previous jump
-      if (this._currjumptime > 0) {
-        var jf = this.jumpForce
-        if (this._currjumptime < dt) jf *= this._currjumptime/dt
-        target.applyForce( [0, jf, 0] )
-        this._currjumptime -= dt
-      }
-    } else if (canjump) { // start new jump
-      this._jumping = true
-      if (!onGround) this._airjumps++
-      this._currjumptime = this.jumpTime
-      target.applyImpulse( [0, this.jumpImpulse, 0] )
-      // clear downward velocity on airjump
-      if (!onGround && target.velocity[1]<0) target.velocity[1] = 0
-    }
-  } else {
-    this._jumping = false
-  }
-
-  // Movement: determine local direction of desired movement
-  vec3.set( m, 0, 0, 0 )
-  if (state.backward) m[2] += 1
-  if (state.forward)  m[2] -= 1
-  if (state.right)    m[0] += 1
-  if (state.left)     m[0] -= 1
-  vec3.normalize( m, m )
-  
-  // not sure of an elegant way to fix this, but babylon.js 
-  // camera controls differently from that of voxel.js#gl-ndarray
-  if (this.babylonCamera) {
-    m[2] *= -1
-    rotY *= -1
-  }
-
-  if (m[0] !== 0 || m[2] !== 0) {
-    // convert to world coords and scale to desired movement vector
-    vec3.rotateY( m, m, [0,0,0], -rotY )
-    speed = this.maxSpeed
-    if (state.sprint)  speed *= this.sprintMoveMult
-    if (state.crouch)  speed *= this.crouchMoveMult
-    vec3.scale( m, m, speed )
-
-    // push vector to achieve desired speed & dir
-    // following code to adjust 2D velocity to desired amount is patterned on Quake: 
-    // https://github.com/id-Software/Quake-III-Arena/blob/master/code/game/bg_pmove.c#L275
-    vec3.subtract( push, m, target.velocity )
-    push[1] = 0
-    pushLen = vec3.length(push)
-    vec3.normalize(push, push)
-
-    if (pushLen > 0) {
-      // pushing force vector
-      canPush = this.moveForce
-      if (!onGround)  canPush *= this.airMoveMult
-
-      // apply final force
-      pushAmt = this.responsiveness * pushLen
-      if (canPush > pushAmt) canPush = pushAmt
-
-      vec3.scale( push, push, canPush )
-      target.applyForce( push )
-
-    }
-
-    // different friction when not moving
-    // idea from Sonic: http://info.sonicretro.org/SPG:Running
-    target.friction = this.runningFriction
-  } else {
-    target.friction = this.standingFriction
-  }
-
-  // handle firing - haven't looked at this yet
-  var can_fire = true
-
-  if(state.fire || state.firealt) {
-    if(this.firing && this.needs_discrete_fire) {
-      this.firing += dt
-    } else {
-      if(!this.fire_rate || 
-         Math.floor(this.firing / this.fire_rate) !== Math.floor((this.firing + dt) / this.fire_rate)) {
-        this.onfire(state)
-      }
-      this.firing += dt
-    }
-  } else {
-    this.firing = 0
-  }
-
-}
-
-
-
-proto.onfire = function(_) {
-
-}
-
-function clamp(value, to) {
-  return isFinite(to) ? Math.max(Math.min(value, to), -to) : value
-}
-
-},{"extend":134,"gl-vec3":146}],134:[function(require,module,exports){
-module.exports=require(83)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/noa-engine/node_modules/extend/index.js":83}],135:[function(require,module,exports){
-module.exports=require(19)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/add.js":19}],136:[function(require,module,exports){
-module.exports=require(20)
-},{"./dot":143,"./fromValues":145,"./normalize":154,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/angle.js":20}],137:[function(require,module,exports){
-module.exports=require(21)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/clone.js":21}],138:[function(require,module,exports){
-module.exports=require(22)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/copy.js":22}],139:[function(require,module,exports){
-module.exports=require(23)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/create.js":23}],140:[function(require,module,exports){
-module.exports=require(24)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/cross.js":24}],141:[function(require,module,exports){
-module.exports=require(25)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/distance.js":25}],142:[function(require,module,exports){
-module.exports=require(26)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/divide.js":26}],143:[function(require,module,exports){
-module.exports=require(27)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/dot.js":27}],144:[function(require,module,exports){
-module.exports=require(28)
-},{"./create":139,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/forEach.js":28}],145:[function(require,module,exports){
-module.exports=require(29)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/fromValues.js":29}],146:[function(require,module,exports){
-module.exports=require(30)
-},{"./add":135,"./angle":136,"./clone":137,"./copy":138,"./create":139,"./cross":140,"./distance":141,"./divide":142,"./dot":143,"./forEach":144,"./fromValues":145,"./inverse":147,"./length":148,"./lerp":149,"./max":150,"./min":151,"./multiply":152,"./negate":153,"./normalize":154,"./random":155,"./rotateX":156,"./rotateY":157,"./rotateZ":158,"./scale":159,"./scaleAndAdd":160,"./set":161,"./squaredDistance":162,"./squaredLength":163,"./subtract":164,"./transformMat3":165,"./transformMat4":166,"./transformQuat":167,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/index.js":30}],147:[function(require,module,exports){
-module.exports=require(31)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/inverse.js":31}],148:[function(require,module,exports){
-module.exports=require(32)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/length.js":32}],149:[function(require,module,exports){
-module.exports=require(33)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/lerp.js":33}],150:[function(require,module,exports){
-module.exports=require(34)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/max.js":34}],151:[function(require,module,exports){
-module.exports=require(35)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/min.js":35}],152:[function(require,module,exports){
-module.exports=require(36)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/multiply.js":36}],153:[function(require,module,exports){
-module.exports=require(37)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/negate.js":37}],154:[function(require,module,exports){
-module.exports=require(38)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/normalize.js":38}],155:[function(require,module,exports){
-module.exports=require(39)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/random.js":39}],156:[function(require,module,exports){
-module.exports=require(40)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateX.js":40}],157:[function(require,module,exports){
-module.exports=require(41)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateY.js":41}],158:[function(require,module,exports){
-module.exports=require(42)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateZ.js":42}],159:[function(require,module,exports){
-module.exports=require(43)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/scale.js":43}],160:[function(require,module,exports){
-module.exports=require(44)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/scaleAndAdd.js":44}],161:[function(require,module,exports){
-module.exports=require(45)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/set.js":45}],162:[function(require,module,exports){
-module.exports=require(46)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/squaredDistance.js":46}],163:[function(require,module,exports){
-module.exports=require(47)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/squaredLength.js":47}],164:[function(require,module,exports){
-module.exports=require(48)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/subtract.js":48}],165:[function(require,module,exports){
-module.exports=require(49)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformMat3.js":49}],166:[function(require,module,exports){
-module.exports=require(50)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformMat4.js":50}],167:[function(require,module,exports){
-module.exports=require(51)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformQuat.js":51}],168:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/ndarray-hash/node_modules/ndarray/node_modules/iota-array/iota.js":55}],147:[function(require,module,exports){
 'use strict';
 
 var collisions = require('collide-3d-tilemap')
@@ -15830,7 +16299,7 @@ function setBoxPos(box, pos) {
   vec3.add( box.max, box.base, box.vec )
 }
 
-},{"./rigidBody":206,"aabb-3d":169,"collide-3d-tilemap":171,"extend":172,"gl-vec3":184}],169:[function(require,module,exports){
+},{"./rigidBody":185,"aabb-3d":148,"collide-3d-tilemap":150,"extend":151,"gl-vec3":163}],148:[function(require,module,exports){
 module.exports = AABB
 
 var vec3 = require('gl-matrix').vec3
@@ -15947,9 +16416,9 @@ proto.union = function(aabb) {
 
 
 
-},{"gl-matrix":170}],170:[function(require,module,exports){
-module.exports=require(70)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/noa-engine/node_modules/aabb-3d/node_modules/gl-matrix/dist/gl-matrix.js":70}],171:[function(require,module,exports){
+},{"gl-matrix":149}],149:[function(require,module,exports){
+module.exports=require(84)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/noa-engine/node_modules/aabb-3d/node_modules/gl-matrix/dist/gl-matrix.js":84}],150:[function(require,module,exports){
 module.exports = function(field, tilesize, dimensions, offset) {
   dimensions = dimensions || [ 
     Math.sqrt(field.length) >> 0
@@ -16038,75 +16507,75 @@ module.exports = function(field, tilesize, dimensions, offset) {
   }
 }
 
-},{}],172:[function(require,module,exports){
-module.exports=require(83)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/noa-engine/node_modules/extend/index.js":83}],173:[function(require,module,exports){
+},{}],151:[function(require,module,exports){
+module.exports=require(97)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/noa-engine/node_modules/extend/index.js":97}],152:[function(require,module,exports){
 module.exports=require(19)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/add.js":19}],174:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/add.js":19}],153:[function(require,module,exports){
 module.exports=require(20)
-},{"./dot":181,"./fromValues":183,"./normalize":192,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/angle.js":20}],175:[function(require,module,exports){
+},{"./dot":160,"./fromValues":162,"./normalize":171,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/angle.js":20}],154:[function(require,module,exports){
 module.exports=require(21)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/clone.js":21}],176:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/clone.js":21}],155:[function(require,module,exports){
 module.exports=require(22)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/copy.js":22}],177:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/copy.js":22}],156:[function(require,module,exports){
 module.exports=require(23)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/create.js":23}],178:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/create.js":23}],157:[function(require,module,exports){
 module.exports=require(24)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/cross.js":24}],179:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/cross.js":24}],158:[function(require,module,exports){
 module.exports=require(25)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/distance.js":25}],180:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/distance.js":25}],159:[function(require,module,exports){
 module.exports=require(26)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/divide.js":26}],181:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/divide.js":26}],160:[function(require,module,exports){
 module.exports=require(27)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/dot.js":27}],182:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/dot.js":27}],161:[function(require,module,exports){
 module.exports=require(28)
-},{"./create":177,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/forEach.js":28}],183:[function(require,module,exports){
+},{"./create":156,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/forEach.js":28}],162:[function(require,module,exports){
 module.exports=require(29)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/fromValues.js":29}],184:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/fromValues.js":29}],163:[function(require,module,exports){
 module.exports=require(30)
-},{"./add":173,"./angle":174,"./clone":175,"./copy":176,"./create":177,"./cross":178,"./distance":179,"./divide":180,"./dot":181,"./forEach":182,"./fromValues":183,"./inverse":185,"./length":186,"./lerp":187,"./max":188,"./min":189,"./multiply":190,"./negate":191,"./normalize":192,"./random":193,"./rotateX":194,"./rotateY":195,"./rotateZ":196,"./scale":197,"./scaleAndAdd":198,"./set":199,"./squaredDistance":200,"./squaredLength":201,"./subtract":202,"./transformMat3":203,"./transformMat4":204,"./transformQuat":205,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/index.js":30}],185:[function(require,module,exports){
+},{"./add":152,"./angle":153,"./clone":154,"./copy":155,"./create":156,"./cross":157,"./distance":158,"./divide":159,"./dot":160,"./forEach":161,"./fromValues":162,"./inverse":164,"./length":165,"./lerp":166,"./max":167,"./min":168,"./multiply":169,"./negate":170,"./normalize":171,"./random":172,"./rotateX":173,"./rotateY":174,"./rotateZ":175,"./scale":176,"./scaleAndAdd":177,"./set":178,"./squaredDistance":179,"./squaredLength":180,"./subtract":181,"./transformMat3":182,"./transformMat4":183,"./transformQuat":184,"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/index.js":30}],164:[function(require,module,exports){
 module.exports=require(31)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/inverse.js":31}],186:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/inverse.js":31}],165:[function(require,module,exports){
 module.exports=require(32)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/length.js":32}],187:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/length.js":32}],166:[function(require,module,exports){
 module.exports=require(33)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/lerp.js":33}],188:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/lerp.js":33}],167:[function(require,module,exports){
 module.exports=require(34)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/max.js":34}],189:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/max.js":34}],168:[function(require,module,exports){
 module.exports=require(35)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/min.js":35}],190:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/min.js":35}],169:[function(require,module,exports){
 module.exports=require(36)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/multiply.js":36}],191:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/multiply.js":36}],170:[function(require,module,exports){
 module.exports=require(37)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/negate.js":37}],192:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/negate.js":37}],171:[function(require,module,exports){
 module.exports=require(38)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/normalize.js":38}],193:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/normalize.js":38}],172:[function(require,module,exports){
 module.exports=require(39)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/random.js":39}],194:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/random.js":39}],173:[function(require,module,exports){
 module.exports=require(40)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateX.js":40}],195:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateX.js":40}],174:[function(require,module,exports){
 module.exports=require(41)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateY.js":41}],196:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateY.js":41}],175:[function(require,module,exports){
 module.exports=require(42)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateZ.js":42}],197:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/rotateZ.js":42}],176:[function(require,module,exports){
 module.exports=require(43)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/scale.js":43}],198:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/scale.js":43}],177:[function(require,module,exports){
 module.exports=require(44)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/scaleAndAdd.js":44}],199:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/scaleAndAdd.js":44}],178:[function(require,module,exports){
 module.exports=require(45)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/set.js":45}],200:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/set.js":45}],179:[function(require,module,exports){
 module.exports=require(46)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/squaredDistance.js":46}],201:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/squaredDistance.js":46}],180:[function(require,module,exports){
 module.exports=require(47)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/squaredLength.js":47}],202:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/squaredLength.js":47}],181:[function(require,module,exports){
 module.exports=require(48)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/subtract.js":48}],203:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/subtract.js":48}],182:[function(require,module,exports){
 module.exports=require(49)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformMat3.js":49}],204:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformMat3.js":49}],183:[function(require,module,exports){
 module.exports=require(50)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformMat4.js":50}],205:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformMat4.js":50}],184:[function(require,module,exports){
 module.exports=require(51)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformQuat.js":51}],206:[function(require,module,exports){
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/gl-vec3/transformQuat.js":51}],185:[function(require,module,exports){
 
 var aabb = require('aabb-3d')
 ,   vec3 = require('gl-vec3')
@@ -16159,7 +16628,7 @@ RigidBody.prototype.atRestY = function() { return this.resting[1] }
 RigidBody.prototype.atRestZ = function() { return this.resting[2] }
 
 
-},{"aabb-3d":169,"gl-vec3":184}],207:[function(require,module,exports){
+},{"aabb-3d":148,"gl-vec3":163}],186:[function(require,module,exports){
 "use strict"
 
 function traceRay_impl(
@@ -16381,7 +16850,7 @@ function traceRay(voxels, origin, direction, max_d, hit_pos, hit_norm, EPSILON) 
 }
 
 module.exports = traceRay
-},{}],208:[function(require,module,exports){
+},{}],187:[function(require,module,exports){
 /*
  * A fast javascript implementation of simplex noise by Jonas Wagner
  *
@@ -16789,7 +17258,7 @@ if (typeof module !== 'undefined') {
 
 })();
 
-},{}],209:[function(require,module,exports){
+},{}],188:[function(require,module,exports){
 var bundleFn = arguments[3];
 var sources = arguments[4];
 var cache = arguments[5];
@@ -16846,7 +17315,7 @@ module.exports = function (fn) {
     ));
 };
 
-},{}],210:[function(require,module,exports){
+},{}],189:[function(require,module,exports){
 /*!
  * The buffer module from node.js, for the browser.
  *
@@ -17899,7 +18368,7 @@ function decodeUtf8Char (str) {
   }
 }
 
-},{"base64-js":211,"ieee754":212,"is-array":213}],211:[function(require,module,exports){
+},{"base64-js":190,"ieee754":191,"is-array":192}],190:[function(require,module,exports){
 var lookup = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
 ;(function (exports) {
@@ -18021,7 +18490,7 @@ var lookup = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 	exports.fromByteArray = uint8ToBase64
 }(typeof exports === 'undefined' ? (this.base64js = {}) : exports))
 
-},{}],212:[function(require,module,exports){
+},{}],191:[function(require,module,exports){
 exports.read = function(buffer, offset, isLE, mLen, nBytes) {
   var e, m,
       eLen = nBytes * 8 - mLen - 1,
@@ -18107,7 +18576,7 @@ exports.write = function(buffer, value, offset, isLE, mLen, nBytes) {
   buffer[offset + i - d] |= s * 128;
 };
 
-},{}],213:[function(require,module,exports){
+},{}],192:[function(require,module,exports){
 
 /**
  * isArray
@@ -18142,7 +18611,7 @@ module.exports = isArray || function (val) {
   return !! val && '[object Array]' == str.call(val);
 };
 
-},{}],214:[function(require,module,exports){
+},{}],193:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -18445,9 +18914,9 @@ function isUndefined(arg) {
   return arg === void 0;
 }
 
-},{}],215:[function(require,module,exports){
-module.exports=require(130)
-},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/noa-engine/node_modules/inherits/inherits_browser.js":130}],216:[function(require,module,exports){
+},{}],194:[function(require,module,exports){
+module.exports=require(144)
+},{"/Users/andy/dev/game/work-babylon/noa-testbed/node_modules/noa-engine/node_modules/inherits/inherits_browser.js":144}],195:[function(require,module,exports){
 (function (process){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -18675,7 +19144,7 @@ var substr = 'ab'.substr(-1) === 'b'
 ;
 
 }).call(this,require('_process'))
-},{"_process":217}],217:[function(require,module,exports){
+},{"_process":196}],196:[function(require,module,exports){
 // shim for using process in browser
 
 var process = module.exports = {};
@@ -18763,14 +19232,14 @@ process.chdir = function (dir) {
     throw new Error('process.chdir is not supported');
 };
 
-},{}],218:[function(require,module,exports){
+},{}],197:[function(require,module,exports){
 module.exports = function isBuffer(arg) {
   return arg && typeof arg === 'object'
     && typeof arg.copy === 'function'
     && typeof arg.fill === 'function'
     && typeof arg.readUInt8 === 'function';
 }
-},{}],219:[function(require,module,exports){
+},{}],198:[function(require,module,exports){
 (function (process,global){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -19360,4 +19829,4 @@ function hasOwnProperty(obj, prop) {
 }
 
 }).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./support/isBuffer":218,"_process":217,"inherits":215}]},{},[1]);
+},{"./support/isBuffer":197,"_process":196,"inherits":194}]},{},[1]);
