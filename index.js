@@ -18,7 +18,7 @@ var opts = {
   pointerLock: true,
   inverseY: true,
   // world data
-  chunkSize: 20,
+  chunkSize: 32,
   chunkAddDistance: 2,
   chunkRemoveDistance: 3,
   // rendering
@@ -62,7 +62,13 @@ var stand_frame = 'player_stand.png'
 var jump_frame = 'player_jump.png'
 
 pmesh.scaling = new BABYLON.Vector3(vw, ph, 1)
-game.setPlayerMesh(pmesh, [pw/2, ph/2, pw/2], true )
+
+// set the player mesh, and set it to be a sprite
+game.entities.addComponent(game.playerEntity, game.entities.components.mesh, {
+  mesh: pmesh,
+  offset: [pw/2, ph/2, pw/2]
+})
+game.entities.addComponent(game.playerEntity, game.entities.components.sprite)
 
 // set player animation frame..
 var facing = 1
@@ -131,7 +137,7 @@ game.inputs.down.on('alt-fire', function() {
 // bind "i" key to invert mouse
 game.inputs.bind('invertY', 'I')
 game.inputs.down.on('invertY', function() {
-  game.controls.inverseY = !game.controls.inverseY
+  game.cameraControls.inverseY = !game.cameraControls.inverseY
 })
 
 
