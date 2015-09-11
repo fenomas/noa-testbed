@@ -41,6 +41,9 @@ var launchProjectile = projectile(game, addParticles)
 initWorldGen(game)
 
 
+// add an ECS component to mark meshes as sprite-like
+game.entities.components.sprite = require('./components/sprite')(game) 
+game.entities.createComponent(game.entities.components.sprite)
 
 
 /*
