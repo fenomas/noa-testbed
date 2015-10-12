@@ -6,7 +6,9 @@ module.exports = function (noa) {
 		
 		name: 'is-sprite',
 
-		state: {},
+		state: {
+			atlas: null
+		},
 
 		onAdd: function(eid, state) {
 			// turn on mesh's billboard.Y
