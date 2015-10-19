@@ -1,5 +1,4 @@
 'use strict';
-/* global BABYLON */
 
 var vec3 = require('gl-vec3')
 var noa = require('noa-engine')
