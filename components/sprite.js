@@ -1,5 +1,4 @@
 'use strict';
-/* global BABYLON */
 
 module.exports = function (noa) {
 	return {

@@ -1,10 +1,10 @@
 {
   "name": "noa-testbed",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Test world for experimental game engine",
   "main": "index.js",
   "scripts": {
-    "start": "beefy index.js:bundle.js 8080 --live --open",
+    "start": "webpack-dev-server index.js --inline",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "Andy Hall",
@@ -18,18 +18,17 @@
   "dependencies": {
     "babylon-atlas": "^0.2.0",
     "gl-vec3": "^1.0.3",
-    "mesh-particle-system": "^0.3.0",
+    "mesh-particle-system": "^0.5.1",
     "ndarray": "^1.0.16",
-    "ndarray-hash": "0.0.0",
+    "ndarray-hash": "1.0.0",
     "ndhash": "^0.1.0",
-    "noa-engine": "andyhall/noa#v0.12.0",
+    "noa-engine": "andyhall/noa#v0.13.0",
     "simplex-noise": "^2.1.1",
-    "webworkify": "^1.0.2"
+    "worker-loader": "^0.6.0"
   },
   "devDependencies": {
-    "beefy": "^2.1.2",
-    "browserify": "^8.1.3",
-    "painterly-textures": "0.0.3"
+    "webpack": "^1.12.2",
+    "webpack-dev-server": "^1.12.0"
   },
   "repository": {
     "type": "git",

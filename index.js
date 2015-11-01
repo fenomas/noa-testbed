@@ -1,5 +1,4 @@
 'use strict';
-/* global BABYLON */
 
 var vec3 = require('gl-vec3')
 var noa = require('noa-engine')
@@ -69,7 +68,7 @@ pmesh.scaling = new BABYLON.Vector3(vw, ph, 1)
 // set the player mesh, and set it to be a sprite
 game.entities.addComponent(game.playerEntity, game.entities.components.mesh, {
   mesh: pmesh,
-  offset: [pw/2, ph/2, pw/2]
+  offset: [0, ph/2, 0]
 })
 game.entities.addComponent(game.playerEntity, game.entities.components.sprite)
 
@@ -115,7 +114,7 @@ game.inputs.down.on('fire', function() {
   var cont = game.container
   if (!cont.hasPointerLock() && cont.supportsPointerLock()) return
 
-  var loc = game.getTargetBlock()
+  var loc = game.getTargetBlockPosition()
   if (loc) {
     game.setBlock(0, loc)
     // smoke for removed block
@@ -127,8 +126,8 @@ game.inputs.down.on('fire', function() {
 // on middle mouse, remember type of targeted block
 var placeBlockID = 1
 game.inputs.down.on('mid-fire', function() {
-  var loc = game.getTargetBlock()
-  if (loc) placeBlockID = game.getBlock(loc);
+  var id = game.getTargetBlock()
+  if (id) placeBlockID = id;
 })
 
 // on right mouse, place remembered block adjacent to target
