@@ -112,7 +112,7 @@ for (var i=0; i<numMobs; ++i) {
 game.inputs.down.on('fire', function() {
   // skip click if just gaining pointer lock
   var cont = game.container
-  if (!cont.hasPointerLock() && cont.supportsPointerLock()) return
+  if (!cont.hasPointerLock && cont.supportsPointerLock) return
 
   var loc = game.getTargetBlockPosition()
   if (loc) {
@@ -146,7 +146,7 @@ game.inputs.down.on('invertY', function() {
 // toggle pointerlock on "L"
 game.inputs.bind('toggleLock', 'L')
 game.inputs.down.on('toggleLock', function() {
-  var locked = game.container.hasPointerLock()
+  var locked = game.container.hasPointerLock
   game.container.setPointerLock(!locked)
 })
 
