@@ -11,13 +11,13 @@ module.exports = function (noa) {
 
 		onAdd: function(eid, state) {
 			// turn on mesh's billboard.Y
-			var meshData = noa.entities.getData(eid, noa.entities.components.mesh)
+			var meshData = noa.entities.getMeshData(eid)
 			meshData.mesh.billboardMode = BABYLON.Mesh.BILLBOARDMODE_Y
 		},
 
 		onRemove: null,
 
-		processor: null
+		system: null
 
 
 	}

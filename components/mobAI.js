@@ -19,13 +19,13 @@ module.exports = function (noa) {
 
 		onAdd: function(eid, state) {
 			// turn on mesh's billboard.Y
-			var meshData = noa.entities.getData(eid, noa.entities.components.mesh)
+			var meshData = noa.entities.getMeshData(eid)
 			meshData.mesh.billboardMode = BABYLON.Mesh.BILLBOARDMODE_Y
 		},
 
 		onRemove: null,
 
-		processor: function (dt, states) {
+		system: function (dt, states) {
 			var t = performance.now()
 			for (var i = 0; i < states.length; i++) {
 				var state = states[i]
@@ -35,7 +35,7 @@ module.exports = function (noa) {
 				var onground = body.resting[1] < 0
 				var fr = (onground) ? state.stand_frame : state.jump_frame
 				var mesh = noa.entities.getMeshData(id).mesh
-				var atlas = noa.ents.getData(id, noa.ents.comps.sprite).atlas
+				var atlas = noa.ents.getSpriteData(id).atlas
 				atlas.setMeshFrame(mesh, fr)
 				
 				// set 

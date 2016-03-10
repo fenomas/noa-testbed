@@ -1,7 +1,6 @@
 'use strict';
 
 
-
 // simple holder for reference to a particle system
 
 module.exports = function (noa) {
@@ -17,7 +16,7 @@ module.exports = function (noa) {
 
 		onRemove: null,
 
-		processor: null
+		system: null
 
 
 	}

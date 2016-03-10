@@ -41,8 +41,9 @@ initWorldGen(game)
 
 
 // add an ECS component to mark meshes as sprite-like
-game.entities.components.sprite = require('./components/sprite')(game) 
-game.entities.createComponent(game.entities.components.sprite)
+var spriteComp = game.entities.createComponent(require('./components/sprite')(game))
+game.entities.names.sprite = spriteComp
+game.entities.getSpriteData = game.entities.getStateAccessor(spriteComp)
 
 
 /*
@@ -66,11 +67,11 @@ var jump_frame = 'player_jump.png'
 pmesh.scaling = new BABYLON.Vector3(vw, ph, 1)
 
 // set the player mesh, and set it to be a sprite
-game.entities.addComponent(game.playerEntity, game.entities.components.mesh, {
+game.entities.addComponent(game.playerEntity, game.entities.names.mesh, {
   mesh: pmesh,
   offset: [0, ph/2, 0]
 })
-game.entities.addComponent(game.playerEntity, game.entities.components.sprite)
+game.entities.addComponent(game.playerEntity, game.entities.names.sprite)
 
 // set player animation frame..
 var facing = 1
