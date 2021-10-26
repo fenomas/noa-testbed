@@ -2,7 +2,7 @@
 
 Test project implementing features of an experimental game engine.
 
-[Live demo!](http://andyhall.github.io/noa-testbed/)
+[Live demo!](http://fenomas.github.io/noa-testbed/)
 
 Live demo controls:
  * WASD/arrow keys to move, Spacebar to jump
